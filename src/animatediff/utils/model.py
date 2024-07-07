@@ -68,7 +68,7 @@ def checkpoint_to_pipeline(
 
     pipeline = StableDiffusionPipeline.from_single_file(
         pretrained_model_link_or_path=str(checkpoint.absolute()),
-        local_files_only=True,
+        local_files_only=False,
         load_safety_checker=False,
     )
     target_dir.mkdir(parents=True, exist_ok=True)

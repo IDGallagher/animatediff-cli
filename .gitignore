@@ -242,3 +242,4 @@ src/animatediff/_version.py
 
 # torch compile debug logs
 /torch_compile_debug/
+outputs

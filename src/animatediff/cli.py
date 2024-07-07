@@ -1,3 +1,9 @@
+import os
+from enum import Enum
+
+from omegaconf import OmegaConf
+
+os.environ["XFORMERS_FORCE_DISABLE_TRITON"] = "1"
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -5,19 +11,17 @@ from typing import Annotated, Optional
 
 import torch
 import typer
-from diffusers.utils.logging import set_verbosity_error as set_diffusers_verbosity_error
+from diffusers.utils.logging import \
+    set_verbosity_error as set_diffusers_verbosity_error
 from rich.logging import RichHandler
 
 from animatediff import __version__, console, get_dir
 from animatediff.generate import create_pipeline, run_inference
 from animatediff.pipelines import AnimationPipeline, load_text_embeddings
-from animatediff.settings import (
-    CKPT_EXTENSIONS,
-    InferenceConfig,
-    ModelConfig,
-    get_infer_config,
-    get_model_config,
-)
+from animatediff.settings import (CKPT_EXTENSIONS, InferenceConfig,
+                                  ModelConfig, get_infer_config,
+                                  get_model_config)
+from animatediff.train import train_ad
 from animatediff.utils.model import checkpoint_to_pipeline, get_base_model
 from animatediff.utils.pipeline import get_context_params, send_to_device
 from animatediff.utils.util import relative_path, save_frames, save_video
@@ -33,7 +37,7 @@ checkpoint_dir = data_dir.joinpath("models/sd")
 pipeline_dir = data_dir.joinpath("models/huggingface")
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(message)s",
     datefmt="%H:%M:%S",
     handlers=[
@@ -60,12 +64,73 @@ except ImportError:
 pipeline: Optional[AnimationPipeline] = None
 last_model_path: Optional[Path] = None
 
+class DistLauncher(str, Enum):
+    pytorch = "pytorch"
+    slurm = "slurm"
 
 def version_callback(value: bool):
     if value:
         console.print(f"AnimateDiff v{__version__}")
         raise typer.Exit()
 
+@cli.command()
+def train(
+    config: Annotated[
+        Path,
+        typer.Option(
+            "--config",
+            "-c",
+            path_type=Path,
+            exists=True,
+            readable=True,
+            dir_okay=False,
+            help="Path to a training configuration YAML file",
+        ),
+    ] = Path("config/training/training.yaml"),
+    launcher: Annotated[
+        DistLauncher,
+        typer.Option(
+            "--launcher",
+            "-l",
+            help="Launcher for distributed training",
+            rich_help_panel="Advanced",
+        ),
+    ] = DistLauncher.pytorch,
+    wandb: Annotated[
+        bool,
+        typer.Option(
+            "--wandb",
+            "-w",
+            is_flag=True,
+            help="Use Weights and Biases",
+            rich_help_panel="Advanced",
+        ),
+    ] = False,
+    use_xformers: Annotated[
+        bool,
+        typer.Option(
+            "--xformers",
+            "-x",
+            is_flag=True,
+            help="Use XFormers instead of SDP Attention",
+            rich_help_panel="Advanced",
+        ),
+    ] = False,
+    force_half_vae: Annotated[
+        bool,
+        typer.Option(
+            "--half-vae",
+            is_flag=True,
+            help="Force VAE to use fp16 (not recommended)",
+            rich_help_panel="Advanced",
+        ),
+    ] = False,
+):
+    name   = Path(config).stem
+    config = OmegaConf.load(config)
+    train_ad(name=name, launcher=launcher, use_wandb=wandb, use_xformers=use_xformers, force_half=force_half_vae, **config)
+    logger.info("Training Done, exiting...")
+    cli.info
 
 @cli.command()
 def generate(
@@ -96,7 +161,7 @@ def generate(
         typer.Option(
             "--width",
             "-W",
-            min=512,
+            min=128,
             max=3840,
             help="Width of generated frames",
             rich_help_panel="Generation",
@@ -107,7 +172,7 @@ def generate(
         typer.Option(
             "--height",
             "-H",
-            min=512,
+            min=128,
             max=3840,
             help="Height of generated frames",
             rich_help_panel="Generation",

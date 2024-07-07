@@ -1,8 +1,6 @@
 [project]
 name = "animatediff-cli"
-authors = [
-  { name = "Andi Powers-Holmes", email = "aholmes@omnom.net" },
-]
+authors = [{ name = "Andi Powers-Holmes", email = "aholmes@omnom.net" }]
 description = "A CLI for animatediff"
 readme = "README.md"
 requires-python = ">=3.10, <3.12"
@@ -17,9 +15,7 @@ keywords = [
   "transformers",
 ]
 license = { file = "LICENSE.md" }
-classifiers = [
-  "Programming Language :: Python :: 3",
-]
+classifiers = ["Programming Language :: Python :: 3"]
 dynamic = ["version"]
 
 dependencies = [
@@ -42,7 +38,7 @@ dependencies = [
   "torch >= 2.0.0, < 2.2.0",
   "torchaudio",
   "torchvision",
-  "transformers >= 4.30.2",
+  "transformers == 4.30.2",
   "typer >= 0.9.0, < 1.0.0",
 ]
 
@@ -54,17 +50,9 @@ dev = [
   "tabulate >= 0.8.9",       # for inductor log prettyprinting
   "ipython",                 # for debugging
 ]
-xformers = [
-  "xformers >= 0.0.21",
-]
-rife = [
-  "ffmpeg-python >= 0.2.0",
-]
-all = [
-  "animatediff-cli[dev]",
-  "animatediff-cli[xformers]",
-  "animatediff-cli[rife]",
-]
+xformers = ["xformers >= 0.0.21"]
+rife = ["ffmpeg-python >= 0.2.0"]
+all = ["animatediff-cli[dev]", "animatediff-cli[xformers]", "animatediff-cli[rife]"]
 
 [project.scripts]
 animatediff = "animatediff.cli:cli"
@@ -84,18 +72,8 @@ include = ["animatediff*"]
 exclude = ["animatediff.tests*"]
 
 [tool.setuptools.package-data]
-"*" = [
-  "*.css",
-  "*.json",
-  "*.md",
-  "*.txt",
-]
-"animatediff.data" = [
-  "*.ckpt",
-  "*.pt",
-  "*.pth",
-  "*.safetensors",
-]
+"*" = ["*.css", "*.json", "*.md", "*.txt"]
+"animatediff.data" = ["*.ckpt", "*.pt", "*.pth", "*.safetensors"]
 
 [tool.ruff]
 line-length = 110
