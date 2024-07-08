@@ -3,98 +3,76 @@ import io
 import math
 import os
 import random
+import sys
+from functools import partial
 
 import numpy as np
 import torch
 import torchvision.transforms as transforms
 from decord import VideoReader
-from einops import rearrange
+from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
 
+sys.path.append("./webdataset/")
+import wids as wids
 
-class WebVid10M(Dataset):
-    def __init__(
-            self,
-            csv_path, video_folder,
-            sample_size=256, sample_stride=4, sample_n_frames=16,
-            is_image=False,
-        ):
-        print(f"loading annotations from {csv_path} ...")
-        with open(csv_path, 'r') as csvfile:
-            self.dataset = list(csv.DictReader(csvfile))
-        self.length = len(self.dataset)
-        print(f"data scale: {self.length}")
+import webdataset as wds
 
-        self.video_folder    = video_folder
-        self.sample_stride   = sample_stride
-        self.sample_n_frames = sample_n_frames
-        self.is_image        = is_image
 
-        sample_size = tuple(sample_size) if not isinstance(sample_size, int) else (sample_size, sample_size)
-        self.pixel_transforms = transforms.Compose([
-            # transforms.RandomHorizontalFlip(),
-            transforms.Resize(sample_size[0]),
-            transforms.CenterCrop(sample_size),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
-        ])
+def make_sample(sample, sample_size=256, target_fps=8, sample_n_frames=16, is_image=False, **kwargs):
+    try:
+        video_path = sample[".mp4"]
+        caption = sample[".txt"]
 
-    def get_batch(self, idx):
-        video_dict = self.dataset[idx]
-        videoid, name, page_dir = video_dict['videoid'], video_dict['name'], video_dict['page_dir']
-
-        video_dir    = os.path.join(self.video_folder, f"{videoid}.mp4")
-        video_reader = VideoReader(video_dir)
+        video_reader = VideoReader(video_path)
         video_length = len(video_reader)
 
-        if not self.is_image:
-            clip_length = min(video_length, (self.sample_n_frames - 1) * self.sample_stride + 1)
-            start_idx   = random.randint(0, video_length - clip_length)
-            batch_index = np.linspace(start_idx, start_idx + clip_length - 1, self.sample_n_frames, dtype=int)
-        else:
+        if video_length == 0:
+            raise ValueError("Empty video file")
+
+        original_fps = video_reader.get_avg_fps()
+
+        if is_image:
             batch_index = [random.randint(0, video_length - 1)]
+        else:
+            frame_interval = original_fps / target_fps
+            total_duration = (sample_n_frames - 1) / target_fps
+            max_start_frame = max(0, video_length - int(total_duration * original_fps) - 1)
+            start_frame = random.randint(0, max_start_frame)
+            batch_index = [round(start_frame + i * frame_interval) for i in range(sample_n_frames)]
+            batch_index = [min(i, video_length - 1) for i in batch_index]  # Ensure we don't exceed video length
 
         pixel_values = torch.from_numpy(video_reader.get_batch(batch_index).asnumpy()).permute(0, 3, 1, 2).contiguous()
         pixel_values = pixel_values / 255.
         del video_reader
 
-        if self.is_image:
+        if is_image:
             pixel_values = pixel_values[0]
 
-        return pixel_values, name
+        sample_size = tuple(sample_size) if not isinstance(sample_size, int) else (sample_size, sample_size)
+        pixel_transforms = transforms.Compose([
+            transforms.Resize(sample_size[0]),
+            transforms.CenterCrop(sample_size),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
+        ])
 
-    def __len__(self):
-        return self.length
+    except KeyError as e:
+        print(f"Missing key in sample: {e}")
+        return None
+    except (FileNotFoundError, RuntimeError, ValueError) as e:
+        print(f"Error processing sample: {e}")
+        return None
 
-    def __getitem__(self, idx):
-        while True:
-            try:
-                pixel_values, name = self.get_batch(idx)
-                break
+    return dict(pixel_values=pixel_transforms(pixel_values), text=caption)
 
-            except Exception as e:
-                idx = random.randint(0, self.length-1)
+def make_dataset(shards, cache_dir="./tmp", **kwargs):
+    trainset = wids.ShardListDataset(shards, cache_dir=cache_dir, keep=True)
+    trainset = trainset.add_transform(partial(make_sample, **kwargs))
+    return trainset
 
-        pixel_values = self.pixel_transforms(pixel_values)
-        sample = dict(pixel_values=pixel_values, text=name)
-        return sample
-
-
-
-if __name__ == "__main__":
-    from animatediff.utils.util import save_videos_grid
-
-    dataset = WebVid10M(
-        csv_path="/mnt/petrelfs/guoyuwei/projects/datasets/webvid/results_2M_val.csv",
-        video_folder="/mnt/petrelfs/guoyuwei/projects/datasets/webvid/2M_val",
-        sample_size=256,
-        sample_stride=4, sample_n_frames=16,
-        is_image=True,
+def make_dataloader(dataset, batch_size=1):
+    sampler = wids.DistributedChunkedSampler(dataset, chunksize=1000, shuffle=True)
+    dataloader = DataLoader(
+        dataset, batch_size=batch_size, sampler=sampler, num_workers=1
     )
-    import pdb
-    pdb.set_trace()
-
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=4, num_workers=16,)
-    for idx, batch in enumerate(dataloader):
-        print(batch["pixel_values"].shape, len(batch["text"]))
-        # for i in range(batch["pixel_values"].shape[0]):
-        #     save_videos_grid(batch["pixel_values"][i:i+1].permute(0,2,1,3,4), os.path.join(".", f"{idx}-{i}.mp4"), rescale=True)
+    return dataloader

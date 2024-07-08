@@ -15,7 +15,6 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 import torchvision
-import wandb
 from diffusers import AutoencoderKL, StableDiffusionPipeline
 from diffusers.models import UNet2DConditionModel
 from diffusers.optimization import get_scheduler as get_lr_scheduler
@@ -27,7 +26,8 @@ from torch.utils.data.distributed import DistributedSampler
 from tqdm.auto import tqdm
 from transformers import CLIPImageProcessor, CLIPTokenizer
 
-from animatediff.dataset import WebVid10M
+import wandb
+from animatediff.dataset import make_dataloader, make_dataset
 from animatediff.models.clip import CLIPSkipTextModel
 from animatediff.models.unet import UNet3DConditionModel
 from animatediff.pipelines.animation import AnimationPipeline
@@ -53,10 +53,10 @@ def zero_rank_print(s, logtype:LogType = LogType.info):
 
 def init_dist(launcher="slurm", backend='gloo', port=29500, **kwargs):
     """Initializes distributed environment."""
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['WORLD_SIZE'] = '1'
-    os.environ['RANK'] = '0'
-    os.environ['MASTER_PORT'] = str(port)
+    # os.environ['MASTER_ADDR'] = 'localhost'
+    # os.environ['WORLD_SIZE'] = '1'
+    # os.environ['RANK'] = '0'
+    # os.environ['MASTER_PORT'] = str(port)
     try:
         if launcher == 'pytorch':
             rank = int(os.environ['RANK'])
@@ -231,6 +231,7 @@ def train_ad(
 
     # Enable gradient checkpointing
     if gradient_checkpointing:
+        logger.info("Enabling gradient checkpointing")
         unet.enable_gradient_checkpointing()
 
     # Move models to GPU
@@ -245,38 +246,38 @@ def train_ad(
     vae = vae.to(device=local_rank)
 
     # Get the training dataset
-    # train_dataset = make_dataset(**train_data)
-    # train_dataloader = make_dataloader(train_dataset, batch_size=train_batch_size)
+    train_dataset = make_dataset(**train_data)
+    train_dataloader = make_dataloader(train_dataset, batch_size=train_batch_size)
 
-    # Get the training dataset
-    train_dataset = WebVid10M(**train_data, is_image=image_finetune)
-    distributed_sampler = DistributedSampler(
-        train_dataset,
-        num_replicas=num_processes,
-        rank=global_rank,
-        shuffle=True,
-        seed=global_seed,
-    )
+    # # Get the training dataset
+    # train_dataset = WebVid10M(**train_data, is_image=image_finetune)
+    # distributed_sampler = DistributedSampler(
+    #     train_dataset,
+    #     num_replicas=num_processes,
+    #     rank=global_rank,
+    #     shuffle=True,
+    #     seed=global_seed,
+    # )
 
-    # DataLoaders creation:
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=train_batch_size,
-        shuffle=False,
-        sampler=distributed_sampler,
-        num_workers=num_workers,
-        pin_memory=True,
-        drop_last=True,
-    )
+    # # DataLoaders creation:
+    # train_dataloader = torch.utils.data.DataLoader(
+    #     train_dataset,
+    #     batch_size=train_batch_size,
+    #     shuffle=False,
+    #     sampler=distributed_sampler,
+    #     num_workers=num_workers,
+    #     pin_memory=True,
+    #     drop_last=True,
+    # )
 
     # Get the training iteration
     if max_train_steps == -1:
         assert max_train_epoch != -1
-        max_train_steps = max_train_epoch * len(train_dataloader)
+        max_train_steps = max_train_epoch * len(train_dataset)
 
     if checkpointing_steps == -1:
         assert checkpointing_epochs != -1
-        checkpointing_steps = checkpointing_epochs * len(train_dataloader)
+        checkpointing_steps = checkpointing_epochs * len(train_dataset)
 
     if scale_lr:
         learning_rate = (learning_rate * gradient_accumulation_steps * train_batch_size * num_processes)
@@ -291,12 +292,12 @@ def train_ad(
 
     # DDP wrapper
     unet_single = unet.to(device=local_rank)
+    # unet_single = torch.compile(unet_single)
     unet = DDP(unet_single, device_ids=[local_rank], output_device=local_rank)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(len(train_dataset) / gradient_accumulation_steps)
     # Afterwards we recalculate our number of training epochs
-    zero_rank_print(f"{max_train_steps} {num_update_steps_per_epoch} {len(train_dataloader)}")
     num_train_epochs = math.ceil(max_train_steps / num_update_steps_per_epoch)
 
     # Train!
@@ -344,7 +345,7 @@ def train_ad(
                         torchvision.utils.save_image(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.png")
 
             # Periodically validation
-            if is_main_process and (global_step % validation_steps == 0 or global_step in validation_steps_tuple):
+            if is_main_process and (global_step in validation_steps_tuple):
                 zero_rank_print("Validation")
 
                 # Validation pipeline
@@ -433,7 +434,6 @@ def train_ad(
             # Add noise to the latents according to the noise magnitude at each timestep
             # (this is the forward diffusion process)
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
-            del latents
 
             zero_rank_print("Get text embedding", LogType.debug)
             # Get the text embedding for conditioning
@@ -443,6 +443,9 @@ def train_ad(
                 ).input_ids.to(local_rank)
                 encoder_hidden_states = text_encoder(prompt_ids)[0]
 
+            del latents, batch
+            torch.cuda.empty_cache()
+
             # Get the target for loss depending on the prediction type
             if noise_scheduler.config.prediction_type == "epsilon":
                 target = noise
@@ -451,56 +454,70 @@ def train_ad(
             else:
                 raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
+            # Reset gradients at the beginning of the accumulation cycle
+            if step % gradient_accumulation_steps == 0:
+                zero_rank_print(f"Reset gradients at the beginning of the accumulation cycle", LogType.debug)
+                optimizer.zero_grad()
+
             # Predict the noise residual and compute loss
             # Mixed-precision training
             zero_rank_print(f"Predict the noise residual and compute loss Mixed Precision: {mixed_precision_training}", LogType.debug)
             with torch.cuda.amp.autocast(enabled=mixed_precision_training):
                 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                loss = loss / gradient_accumulation_steps  # Normalize loss to account for accumulation
 
-                optimizer.zero_grad()
-                zero_rank_print("Backpropagate", LogType.debug)
+            del noisy_latents, noise, timesteps, model_pred
+            torch.cuda.empty_cache()
 
+            # Backpropagate loss, accumulate gradients
+            zero_rank_print("Backpropagate", LogType.debug)
+            if mixed_precision_training:
+                scaler.scale(loss).backward()  # Scale the loss; backward pass accumulates gradients
+            else:
+                loss.backward()  # Gradient accumulation without scaling
+
+            # Apply the optimizer step and update the learning rate scheduler only at the end of an accumulation period or at the last batch
+            if (step + 1) % gradient_accumulation_steps == 0 or step == len(train_dataset) - 1:
+                zero_rank_print("=== Accumulate gradients", LogType.debug)
                 if mixed_precision_training:
-                    scaler.scale(loss).backward()
-                    scaler.unscale_(optimizer)
+                    scaler.unscale_(optimizer)  # Unscale gradients before clipping
                     torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
-                    scaler.step(optimizer)
-                    scaler.update()
+                    scaler.step(optimizer)  # Perform optimizer step
+                    scaler.update()  # Update the scale for next iteration
                 else:
-                    loss.backward()
                     torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
                     optimizer.step()
 
-            lr_scheduler.step()
+                lr_scheduler.step()  # Update learning rate
+
             progress_bar.update(1)
             global_step += 1
-
             ### <<<< Training <<<< ###
 
-            # Wandb logging
-            if is_main_process and (not is_debug) and use_wandb:
-                wandb.log({"train_loss": loss.item()}, step=global_step)
-
             # Save checkpoint
-            if is_main_process and (global_step % checkpointing_steps == 0 or step == len(train_dataloader) - 1):
+            if is_main_process and (global_step % checkpointing_steps == 0 or step == len(train_dataset) - 1):
                 save_path = os.path.join(output_dir, f"checkpoints")
                 state_dict = {
                     "epoch": epoch,
                     "global_step": global_step,
                     "state_dict": unet.state_dict(),
                 }
-                if step == len(train_dataloader) - 1:
+                if step == len(train_dataset) - 1:
                     torch.save(state_dict, os.path.join(save_path, f"checkpoint-epoch-{epoch+1}.ckpt"))
                 else:
                     torch.save(state_dict, os.path.join(save_path, f"checkpoint.ckpt"))
                 logging.info(f"Saved state to {save_path} (global_step: {global_step})")
 
+            # Logging
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
 
-            # Clear memory
-            del batch, model_pred, loss, noisy_latents, noise, timesteps
+            # Wandb logging
+            if is_main_process and (not is_debug) and use_wandb:
+                wandb.log({"train_loss": (loss * gradient_accumulation_steps).item()}, step=global_step)
+
+            del loss
             torch.cuda.empty_cache()
 
             if global_step >= max_train_steps:

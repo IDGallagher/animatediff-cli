@@ -1,0 +1,50 @@
+invoke
+typer
+
+mkdocs
+setuptools
+wheel
+
+autoflake
+pytest
+isort
+black
+mypy
+flake8
+pydocstyle
+bandit
+twine
+wheel
+mkdocs
+pdoc
+
+
+jupyter
+jupyterlab
+notebook
+nbconvert
+papermill
+# ipywidgets
+# jupyter_contrib_nbextensions
+
+msgpack
+cbor
+lmdb
+
+Pillow
+numpy
+scipy
+matplotlib
+imageio
+
+torch
+torchvision
+# pytorch_lightning
+# adapter-transformers
+# sentencepiece
+# pyphen
+
+# ray
+# ray[tune]
+# ray[default]
+# ray[sgd]

@@ -1,9 +1,12 @@
 import os
+import sys
 from enum import Enum
 
 from omegaconf import OmegaConf
 
-os.environ["XFORMERS_FORCE_DISABLE_TRITON"] = "1"
+if sys.platform == "win32":
+    os.environ["XFORMERS_FORCE_DISABLE_TRITON"] = "1"
+
 import logging
 from datetime import datetime
 from pathlib import Path

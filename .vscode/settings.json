@@ -83,5 +83,8 @@
     },
 
     "remote.autoForwardPorts": false,
-    "remote.autoForwardPortsSource": "process"
+    "remote.autoForwardPortsSource": "process",
+    "python.analysis.extraPaths": [
+      "./src/animatediff/webdataset"
+    ]
 }

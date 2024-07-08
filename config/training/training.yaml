@@ -28,10 +28,11 @@ noise_scheduler_kwargs:
   clip_sample:         false
 
 train_data:
-  csv_path:        "./data/test.csv"
-  video_folder:    "./data/videos"
-  sample_size:     256
-  sample_stride:   4
+  shards:          "s3://webvid-10m/val-shards.json"
+  # csv_path:        "./data/test.csv"
+  # video_folder:    "./data/videos"
+  sample_size:     128
+  target_fps:      8
   sample_n_frames: 16
 
 validation_data:
@@ -54,17 +55,20 @@ unet_checkpoint_path: ""
 
 learning_rate:    1.e-4
 train_batch_size: 1
+gradient_accumulation_steps: 20
+num_workers: 1
 
 max_train_epoch:      -1
 max_train_steps:      100
 checkpointing_epochs: -1
 checkpointing_steps:  60
 
-validation_steps:       5000
-# validation_steps_tuple: [2, 50]
+# validation_steps:       5000
+validation_steps_tuple: [100, 1000]
 
 global_seed: 42
 mixed_precision_training: True
 enable_xformers_memory_efficient_attention: True
+gradient_checkpointing: False
 
 is_debug: False
