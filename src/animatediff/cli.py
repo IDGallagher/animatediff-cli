@@ -2,6 +2,7 @@ import os
 import sys
 from enum import Enum
 
+from einops import rearrange
 from omegaconf import OmegaConf
 
 if sys.platform == "win32":
@@ -27,7 +28,9 @@ from animatediff.settings import (CKPT_EXTENSIONS, InferenceConfig,
 from animatediff.train import train_ad
 from animatediff.utils.model import checkpoint_to_pipeline, get_base_model
 from animatediff.utils.pipeline import get_context_params, send_to_device
-from animatediff.utils.util import relative_path, save_frames, save_video
+from animatediff.utils.util import (load_video_frames, relative_path,
+                                    save_frames, save_video,
+                                    set_tensor_interpolation_method)
 
 cli: typer.Typer = typer.Typer(
     context_settings=dict(help_option_names=["-h", "--help"]),
@@ -320,6 +323,8 @@ def generate(
     model_config: ModelConfig = get_model_config(config_path)
     infer_config: InferenceConfig = get_infer_config()
 
+    set_tensor_interpolation_method( model_config.tensor_interpolation_slerp )
+
     # set sane defaults for context, overlap, and stride if not supplied
     context, overlap, stride = get_context_params(length, context, overlap, stride)
 
@@ -336,6 +341,20 @@ def generate(
     save_dir = out_dir.joinpath(f"{time_str}-{model_config.save_name}")
     save_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Will save outputs to ./{relative_path(save_dir)}")
+
+    # Handle input video if specified
+    if model_config.input_video:
+        input_video_path = str(model_config.input_video.resolve())
+        logger.info(f"Loading video from: {input_video_path}")
+        video_tensor = load_video_frames(input_video_path, length, target_fps=model_config.video_fps, sample_size=224, is_image=False)
+        logger.debug(f"Video tensor shape {video_tensor.shape}")
+        # save_video(video_tensor, save_dir.joinpath("initial.gif"))
+
+        video_tensor_out = rearrange(video_tensor.unsqueeze(0), "b f c h w -> b c f h w")
+        for idx, pixel_value in enumerate(video_tensor_out):
+            pixel_value = pixel_value[None, ...]
+            # save_frames(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}")
+            save_video(pixel_value, save_dir.joinpath("initial.gif"))
 
     # beware the pipeline
     global pipeline
@@ -420,6 +439,7 @@ def generate(
                 context_overlap=overlap,
                 context_stride=stride,
                 clip_skip=model_config.clip_skip,
+                video_tensor=video_tensor,
             )
             outputs.append(output)
             torch.cuda.empty_cache()

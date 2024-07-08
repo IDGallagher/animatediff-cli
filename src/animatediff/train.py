@@ -177,7 +177,6 @@ def train_ad(
     text_encoder: CLIPSkipTextModel = CLIPSkipTextModel.from_pretrained(pretrained_model_path, subfolder="text_encoder")
     logger.debug("Loading VAE...")
     vae: AutoencoderKL = AutoencoderKL.from_pretrained(pretrained_model_path, subfolder="vae")
-    feature_extractor = CLIPImageProcessor.from_pretrained(pretrained_model_path, subfolder="feature_extractor")
     logger.debug("Loading Unet...")
     if not image_finetune:
         unet = UNet3DConditionModel.from_pretrained_2d(

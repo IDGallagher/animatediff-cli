@@ -3,7 +3,7 @@
 import inspect
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, List, Optional, Union
 
 import numpy as np
 import torch
@@ -12,30 +12,25 @@ from diffusers.image_processor import VaeImageProcessor
 from diffusers.loaders import LoraLoaderMixin, TextualInversionLoaderMixin
 from diffusers.models import AutoencoderKL
 from diffusers.pipelines.pipeline_utils import DiffusionPipeline
-from diffusers.schedulers import (
-    DDIMScheduler,
-    DPMSolverMultistepScheduler,
-    EulerAncestralDiscreteScheduler,
-    EulerDiscreteScheduler,
-    LMSDiscreteScheduler,
-    PNDMScheduler,
-)
-from diffusers.utils import (
-    BaseOutput,
-    deprecate,
-    is_accelerate_available,
-    is_accelerate_version,
-)
+from diffusers.schedulers import (DDIMScheduler, DPMSolverMultistepScheduler,
+                                  EulerAncestralDiscreteScheduler,
+                                  EulerDiscreteScheduler, LMSDiscreteScheduler,
+                                  PNDMScheduler)
+from diffusers.utils import (BaseOutput, deprecate, is_accelerate_available,
+                             is_accelerate_version)
 from diffusers.utils.torch_utils import randn_tensor
 from einops import rearrange
 from packaging import version
 from tqdm.rich import tqdm
 from transformers import CLIPImageProcessor, CLIPTokenizer
 
+from animatediff.ip_adapter.ip_adapter import IPAdapter, IPAdapterPlus
 from animatediff.models.clip import CLIPSkipTextModel
 from animatediff.models.unet import UNet3DConditionModel
-from animatediff.pipelines.context import get_context_scheduler, get_total_steps
+from animatediff.pipelines.context import (get_context_scheduler,
+                                           get_total_steps)
 from animatediff.utils.model import nop_train
+from animatediff.utils.util import get_tensor_interpolation_method
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +56,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         LMSDiscreteScheduler,
         PNDMScheduler,
     ]
+    ip_adapter: IPAdapter = None
 
     def __init__(
         self,
@@ -77,6 +73,9 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             DPMSolverMultistepScheduler,
         ],
         feature_extractor: CLIPImageProcessor,
+        ip_adapter_scale: float = 1,
+        ip_adapter_is_plus: bool = True,
+        load_ip_adapter: bool = False,
     ):
         super().__init__()
 
@@ -342,6 +341,22 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
 
         return prompt_embeds
 
+    def load_ip_adapter(self, is_plus:bool=True, scale:float=1):
+        if self.ip_adapter is None:
+            img_enc_path = "data/models/ip_adapter/laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
+
+            if is_plus:
+                self.ip_adapter = IPAdapterPlus(self, img_enc_path, "data/models/ip_adapter/ip-adapter-plus_sd15.bin", self.device, 16)
+            else:
+                self.ip_adapter = IPAdapter(self, img_enc_path, "data/models/ip_adapter/ip-adapter_sd15.bin", self.device, 4)
+            self.ip_adapter.set_scale(scale)
+
+    def unload_ip_adapater(self):
+        if self.ip_adapter:
+            self.ip_adapter.unload()
+            self.ip_adapter = None
+            torch.cuda.empty_cache()
+
     def decode_latents(self, latents: torch.Tensor):
         video_length = latents.shape[2]
         latents = 1 / self.vae.config.scaling_factor * latents
@@ -483,6 +498,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         context_overlap: int = 4,
         context_schedule: str = "uniform",
         clip_skip: int = 1,
+        pos_image_embeds: Optional[torch.FloatTensor] = None,
+        neg_image_embeds: Optional[torch.FloatTensor] = None,
         **kwargs,
     ):
         if prompt is None and prompt_map is None:
@@ -535,9 +552,11 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
         )
 
-        # build map for prompt travel by frame index
-        frame_to_embed: dict[int, torch.Tensor] = {}
-        prompt_list = list(prompt_map.values())
+        ### text
+        prompt_embeds_map = {}
+        prompt_map = dict(sorted(prompt_map.items()))
+
+        prompt_list = [prompt_map[key_frame] for key_frame in prompt_map.keys()]
         prompt_embeds = self._encode_prompt(
             prompt_list,
             device,
@@ -557,35 +576,156 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             positive = prompt_embeds
             positive = positive.chunk(positive.shape[0], 0)
 
+        if self.ip_adapter:
+            self.ip_adapter.set_text_length(positive[0].shape[1])
+
         for i, key_frame in enumerate(prompt_map):
             if do_classifier_free_guidance:
-                frame_to_embed[key_frame] = torch.cat([negative[i], positive[i]])
+                prompt_embeds_map[key_frame] = torch.cat([negative[i] , positive[i]])
             else:
-                frame_to_embed[key_frame] = positive[i]
+                prompt_embeds_map[key_frame] = positive[i]
 
-        keyframes = sorted(frame_to_embed.keys())
+        key_first =list(prompt_map.keys())[0]
+        key_last =list(prompt_map.keys())[-1]
 
-        def get_frame_embeds(context: list[int]):
-            # if we only have one frame we only have one frame
-            if len(keyframes) == 1:
-                return frame_to_embed[0]
+        def get_current_prompt_embeds_from_text(
+                center_frame = None,
+                video_length : int = 0
+                ):
 
-            # get frame in the middle of the context
-            fidx = context[len(context) // 2]
+            key_prev = key_last
+            key_next = key_first
 
-            # if we're exactly on a frame, just return it (first/last guaranteed)
-            if fidx in frame_to_embed:
-                return frame_to_embed[fidx]
+            for p in prompt_map.keys():
+                if p > center_frame:
+                    key_next = p
+                    break
+                key_prev = p
 
-            # otherwise, we need to interpolate, so find the previous and next frame IDs
-            pidx = np.searchsorted(keyframes, fidx)
-            last_key, next_key = keyframes[pidx - 1 : pidx + 1]
+            dist_prev = center_frame - key_prev
+            if dist_prev < 0:
+                dist_prev += video_length
+            dist_next = key_next - center_frame
+            if dist_next < 0:
+                dist_next += video_length
 
-            # and interpolate between them for our mix factor
-            multiplier = np.interp(fidx, [last_key, next_key], [0, 1])
+            if key_prev == key_next or dist_prev + dist_next == 0:
+                return prompt_embeds_map[key_prev]
 
-            # mix the embeddings and return
-            return frame_to_embed[last_key] * (1 - multiplier) + frame_to_embed[next_key] * multiplier
+            rate = dist_prev / (dist_prev + dist_next)
+
+            return get_tensor_interpolation_method()( prompt_embeds_map[key_prev], prompt_embeds_map[key_next], rate )
+
+        ### image
+        if self.ip_adapter:
+            im_prompt_embeds_map = {}
+            ip_im_map = {i: torch.tensor([]) for i in range(16)}
+
+            # ip_im_map = dict(sorted(ip_im_map.items()))
+
+            # ip_im_list = [ip_im_map[key_frame] for key_frame in ip_im_map.keys()]
+
+            positive = pos_image_embeds
+            negative = neg_image_embeds
+
+            bs_embed, seq_len, _ = positive.shape
+            positive = positive.repeat(1, 1, 1)
+            positive = positive.view(bs_embed * 1, seq_len, -1)
+
+            bs_embed, seq_len, _ = negative.shape
+            negative = negative.repeat(1, 1, 1)
+            negative = negative.view(bs_embed * 1, seq_len, -1)
+
+            if do_classifier_free_guidance:
+                negative = negative.chunk(negative.shape[0], 0)
+                positive = positive.chunk(positive.shape[0], 0)
+            else:
+                positive = positive.chunk(positive.shape[0], 0)
+
+            for i, key_frame in enumerate(ip_im_map):
+                if do_classifier_free_guidance:
+                    im_prompt_embeds_map[key_frame] = torch.cat([negative[i] , positive[i]])
+                else:
+                    im_prompt_embeds_map[key_frame] = positive[i]
+
+            im_key_first =list(ip_im_map.keys())[0]
+            im_key_last =list(ip_im_map.keys())[-1]
+
+        def get_current_prompt_embeds_from_image(
+                center_frame = None,
+                video_length : int = 0
+                ):
+
+            key_prev = im_key_last
+            key_next = im_key_first
+
+            for p in ip_im_map.keys():
+                if p > center_frame:
+                    key_next = p
+                    break
+                key_prev = p
+
+            dist_prev = center_frame - key_prev
+            if dist_prev < 0:
+                dist_prev += video_length
+            dist_next = key_next - center_frame
+            if dist_next < 0:
+                dist_next += video_length
+
+            if key_prev == key_next or dist_prev + dist_next == 0:
+                return im_prompt_embeds_map[key_prev]
+
+            rate = dist_prev / (dist_prev + dist_next)
+
+            return get_tensor_interpolation_method()( im_prompt_embeds_map[key_prev], im_prompt_embeds_map[key_next], rate)
+
+        def get_current_prompt_embeds_multi(
+                context: List[int] = None,
+                video_length : int = 0
+                ):
+
+            neg = []
+            pos = []
+            for c in context:
+                t = get_current_prompt_embeds_from_text(c, video_length)
+                if do_classifier_free_guidance:
+                    negative, positive = t.chunk(2, 0)
+                    neg.append(negative)
+                    pos.append(positive)
+                else:
+                    pos.append(t)
+
+            if do_classifier_free_guidance:
+                neg = torch.cat(neg)
+                pos = torch.cat(pos)
+                text_emb = torch.cat([neg , pos])
+            else:
+                pos = torch.cat(pos)
+                text_emb = pos
+
+            if self.ip_adapter == None:
+                return text_emb
+
+            neg = []
+            pos = []
+            for c in context:
+                im = get_current_prompt_embeds_from_image(c, video_length)
+                if do_classifier_free_guidance:
+                    negative, positive = im.chunk(2, 0)
+                    neg.append(negative)
+                    pos.append(positive)
+                else:
+                    pos.append(im)
+
+            if do_classifier_free_guidance:
+                neg = torch.cat(neg)
+                pos = torch.cat(pos)
+                image_emb = torch.cat([neg , pos])
+            else:
+                pos = torch.cat(pos)
+                image_emb = pos
+
+            return torch.cat([text_emb,image_emb], dim=1)
 
         # 4. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=latents_device)
@@ -599,7 +739,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             video_length,
             height,
             width,
-            frame_to_embed[0].dtype,
+            prompt_embeds.dtype,
             latents_device,  # keep latents on cpu for sequential mode
             generator,
             latents,
@@ -646,12 +786,12 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                         self.unet.device, self.unet.dtype
                     )
 
-                    frame_embeds = get_frame_embeds(context).to(self.unet.device, self.unet.dtype)
+                    cur_prompt = get_current_prompt_embeds_multi(context,video_length)
                     # predict the noise residual
                     pred = self.unet(
                         latent_model_input,
                         t,
-                        encoder_hidden_states=frame_embeds,
+                        encoder_hidden_states=cur_prompt,
                         cross_attention_kwargs=cross_attention_kwargs,
                         return_dict=False,
                     )[0]

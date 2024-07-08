@@ -6,6 +6,7 @@ from typing import Optional, Union
 
 import torch
 from diffusers import AutoencoderKL, StableDiffusionPipeline
+from torchvision.transforms.functional import to_pil_image
 from transformers import CLIPImageProcessor, CLIPTokenizer
 
 from animatediff import get_dir
@@ -14,7 +15,8 @@ from animatediff.models.unet import UNet3DConditionModel
 from animatediff.pipelines import AnimationPipeline, load_text_embeddings
 from animatediff.schedulers import get_scheduler
 from animatediff.settings import InferenceConfig, ModelConfig
-from animatediff.utils.model import ensure_motion_modules, get_checkpoint_weights
+from animatediff.utils.model import (ensure_motion_modules,
+                                     get_checkpoint_weights)
 from animatediff.utils.util import save_video
 
 logger = logging.getLogger(__name__)
@@ -153,6 +155,7 @@ def run_inference(
     context_schedule: str = "uniform",
     clip_skip: int = 1,
     return_dict: bool = False,
+    video_tensor: Optional[torch.FloatTensor] = None,
 ):
     if prompt is None and prompt_map is None:
         raise ValueError("prompt and prompt_map cannot both be None, one must be provided")
@@ -163,6 +166,24 @@ def run_inference(
         torch.manual_seed(seed)
     else:
         seed = torch.seed()
+
+    if video_tensor is not None:
+        pipeline.load_ip_adapter()
+        # Normalize tensor if necessary (this depends on how it was preprocessed)
+        # Check if normalization is needed (if values are not in [0, 1])
+        if video_tensor.min() < 0 or video_tensor.max() > 1:
+            video_tensor = (video_tensor + 1) / 2  # Adjust from [-1, 1] to [0, 1] for PIL
+
+        logger.debug(f"Video tensor shape {video_tensor.shape}")
+
+        # Convert frames to PIL images
+        pil_images = [to_pil_image(frame) for frame in video_tensor]
+
+        # Get image embeddings using the provided IP adapter method
+        pos_image_embeds, neg_image_embeds = pipeline.ip_adapter.get_image_embeds(pil_images)
+
+        logger.debug(f"Created image embeds {pos_image_embeds.shape} {neg_image_embeds.shape}")
+
 
     with torch.inference_mode(True):
         pipeline_output = pipeline(
@@ -180,6 +201,8 @@ def run_inference(
             context_overlap=context_overlap,
             context_schedule=context_schedule,
             clip_skip=clip_skip,
+            pos_image_embeds=pos_image_embeds,
+            neg_image_embeds=neg_image_embeds,
         )
     logger.info("Generation complete, saving...")
 

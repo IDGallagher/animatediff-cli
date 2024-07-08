@@ -6,12 +6,9 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
 from pydantic import BaseConfig, BaseSettings, Field, root_validator
-from pydantic.env_settings import (
-    EnvSettingsSource,
-    InitSettingsSource,
-    SecretsSettingsSource,
-    SettingsSourceCallable,
-)
+from pydantic.env_settings import (EnvSettingsSource, InitSettingsSource,
+                                   SecretsSettingsSource,
+                                   SettingsSourceCallable)
 
 from animatediff import get_dir
 from animatediff.schedulers import DiffusionScheduler
@@ -102,6 +99,7 @@ class ModelConfig(BaseSettings):
     path: Path = Field(...)  # Path to the model or LoRA checkpoint
     motion_module: Path = Field(...)  # Path to the motion module
     compile: bool = Field(False)  # whether to compile the model with TorchDynamo
+    tensor_interpolation_slerp: bool = Field(True)
     seed: list[int] = Field([])  # Seed(s) for the random number generators
     scheduler: DiffusionScheduler = Field(DiffusionScheduler.k_dpmpp_2m)  # Scheduler to use
     steps: int = 25  # Number of inference steps to run
@@ -109,7 +107,8 @@ class ModelConfig(BaseSettings):
     clip_skip: int = 1  # skip the last N-1 layers of the CLIP text encoder
     prompts: list[str | dict[int, str]] = Field([])  # Prompt(s) or prompt map(s) to use
     n_prompts: list[str] = Field([])  # Anti-prompt(s) to use
-
+    input_video: Optional[Path] = Field(None)
+    video_fps: int = 8
     class Config(JsonConfig):
         json_config_path: Path
 
