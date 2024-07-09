@@ -108,6 +108,7 @@ class ModelConfig(BaseSettings):
     prompts: list[str | dict[int, str]] = Field([])  # Prompt(s) or prompt map(s) to use
     n_prompts: list[str] = Field([])  # Anti-prompt(s) to use
     input_video: Optional[Path] = Field(None)
+    input_images: Optional[dict[int, str]] = Field(None)
     video_fps: int = 8
     class Config(JsonConfig):
         json_config_path: Path

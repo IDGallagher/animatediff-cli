@@ -6,6 +6,7 @@ from typing import Optional, Union
 
 import torch
 from diffusers import AutoencoderKL, StableDiffusionPipeline
+from PIL import Image
 from torchvision.transforms.functional import to_pil_image
 from transformers import CLIPImageProcessor, CLIPTokenizer
 
@@ -17,7 +18,7 @@ from animatediff.schedulers import get_scheduler
 from animatediff.settings import InferenceConfig, ModelConfig
 from animatediff.utils.model import (ensure_motion_modules,
                                      get_checkpoint_weights)
-from animatediff.utils.util import save_video
+from animatediff.utils.util import save_frames, save_images, save_video
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,7 @@ def run_inference(
     clip_skip: int = 1,
     return_dict: bool = False,
     video_tensor: Optional[torch.FloatTensor] = None,
+    input_images: Optional[dict[int, str]] = None,
 ):
     if prompt is None and prompt_map is None:
         raise ValueError("prompt and prompt_map cannot both be None, one must be provided")
@@ -168,9 +170,9 @@ def run_inference(
     else:
         seed = torch.seed()
 
-    pos_image_embeds, neg_image_embeds = None, None
+    pos_image_embeds, neg_image_embeds, image_embed_frames = None, None, []
     if video_tensor is not None:
-        pipeline.load_ip_adapter()
+        pipeline.load_ip_adapter(scale=0.5)
         # Normalize tensor if necessary (this depends on how it was preprocessed)
         # Check if normalization is needed (if values are not in [0, 1])
         if video_tensor.min() < 0 or video_tensor.max() > 1:
@@ -183,9 +185,23 @@ def run_inference(
 
         # Get image embeddings using the provided IP adapter method
         pos_image_embeds, neg_image_embeds = pipeline.ip_adapter.get_image_embeds(pil_images)
-
+        image_embed_frames = range(pos_image_embeds.shape[0])
         logger.debug(f"Created image embeds {pos_image_embeds.shape} {neg_image_embeds.shape}")
+    elif input_images is not None:
+        pipeline.load_ip_adapter(scale=0.5)
+        pil_images = []
 
+        # Load and convert each image file to a PIL Image
+        for idx, file_path in input_images.items():
+            img = Image.open(file_path)
+            # Assume images are already normalized to [0, 1], add any additional necessary preprocessing if required
+            pil_images.append(img)
+        # Save initial
+        save_images(pil_images, out_dir.joinpath(f"initial"))
+        # Get image embeddings using the provided IP adapter method
+        pos_image_embeds, neg_image_embeds = pipeline.ip_adapter.get_image_embeds(pil_images)
+        image_embed_frames = [int(idx) for idx in input_images.keys()]  # Save indices of the frames
+        logger.debug(f"Processed image embeds for {len(pil_images)} images")
 
     with torch.inference_mode(True):
         pipeline_output = pipeline(
@@ -206,6 +222,7 @@ def run_inference(
             clip_skip=clip_skip,
             pos_image_embeds=pos_image_embeds,
             neg_image_embeds=neg_image_embeds,
+            image_embed_frames=image_embed_frames
         )
     logger.info("Generation complete, saving...")
 

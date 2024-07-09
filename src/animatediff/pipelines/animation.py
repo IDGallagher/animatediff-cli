@@ -338,7 +338,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
 
         return prompt_embeds
 
-    def load_ip_adapter(self, is_plus:bool=True, scale:float=0.5):
+    def load_ip_adapter(self, is_plus:bool=True, scale:float=1.0):
         if self.ip_adapter is None:
             img_enc_path = "data/models/ip_adapter/laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
 
@@ -498,6 +498,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         clip_skip: int = 1,
         pos_image_embeds: Optional[torch.FloatTensor] = None,
         neg_image_embeds: Optional[torch.FloatTensor] = None,
+        image_embed_frames: list[int] = [],
         is_single_prompt_mode: bool = False,
         **kwargs,
     ):
@@ -618,11 +619,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         ### image
         if self.ip_adapter:
             im_prompt_embeds_map = {}
-            ip_im_map = {i: torch.tensor([]) for i in range(pos_image_embeds.shape[0])}
-
-            # ip_im_map = dict(sorted(ip_im_map.items()))
-
-            # ip_im_list = [ip_im_map[key_frame] for key_frame in ip_im_map.keys()]
+            ip_im_map = {i: torch.tensor([]) for i in image_embed_frames}
 
             positive = pos_image_embeds
             negative = neg_image_embeds

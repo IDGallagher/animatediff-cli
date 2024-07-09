@@ -366,6 +366,7 @@ def generate(
             pixel_value = pixel_value[None, ...]
             # save_frames(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}")
             save_video(pixel_value, save_dir.joinpath("initial.mp4"))
+            save_frames(pixel_value, save_dir.joinpath(f"initial"))
 
     # beware the pipeline
     global pipeline
@@ -452,6 +453,7 @@ def generate(
                 context_loop=loop,
                 clip_skip=model_config.clip_skip,
                 video_tensor=video_tensor,
+                input_images=model_config.input_images
             )
             outputs.append(output)
             torch.cuda.empty_cache()
