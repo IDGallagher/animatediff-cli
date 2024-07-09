@@ -98,6 +98,7 @@ class ModelConfig(BaseSettings):
     base: Optional[Path] = Field(None)  # Path to base checkpoint (if using a LoRA)
     path: Path = Field(...)  # Path to the model or LoRA checkpoint
     motion_module: Path = Field(...)  # Path to the motion module
+    motion_predictor: Optional[Path] = Field(None)  # Path to the motion module
     compile: bool = Field(False)  # whether to compile the model with TorchDynamo
     tensor_interpolation_slerp: bool = Field(True)
     seed: list[int] = Field([])  # Seed(s) for the random number generators
@@ -107,8 +108,9 @@ class ModelConfig(BaseSettings):
     clip_skip: int = 1  # skip the last N-1 layers of the CLIP text encoder
     prompts: list[str | dict[int, str]] = Field([])  # Prompt(s) or prompt map(s) to use
     n_prompts: list[str] = Field([])  # Anti-prompt(s) to use
-    input_video: Optional[Path] = Field(None)
-    input_images: Optional[dict[int, str]] = Field(None)
+    input_video: Optional[Path] = Field(None) # A video to be embedded with IPA
+    input_images: Optional[dict[int, str]] = Field(None) # Images to be embedded with IPA
+    interpolate_images: bool = Field(False) # Interpolate between 2 image embeddings but don't use MotionPredictor
     video_fps: int = 8
     class Config(JsonConfig):
         json_config_path: Path
