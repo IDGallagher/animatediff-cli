@@ -5,16 +5,16 @@
   "motion_module": "C:/dev/VideoTraining/models/Motion_Module/mm_sd_v15_v2.ckpt",
   "compile": false,
   "seed": [
-    1234
+    123456
   ],
-  "input_video": "C:/dev/animatediff-cli/data/business_man.mp4",
-  "video_fps":  8,
+  "input_video": "data/business_man.mp4",
+  "video_fps":  4,
   "scheduler": "ddim",
   "steps": 25,
   "guidance_scale": 7.5,
   "clip_skip": 1,
   "prompts": [
-    "portrait of thoughtful middle aged businessman thinking and putting his hand on his chin in front of a blurred office background"
+    "portrait of thoughtful middle aged businessman thinking in front of a blurred office background"
   ],
   "n_prompts": [
     "semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, text, close up, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck"

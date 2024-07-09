@@ -231,6 +231,16 @@ def generate(
             rich_help_panel="Generation",
         ),
     ] = None,
+    loop: Annotated[
+        bool,
+        typer.Option(
+            "--loop",
+            "-l",
+            is_flag=True,
+            help="Attempt to loop the video",
+            rich_help_panel="Generation",
+        ),
+    ] = False,
     repeats: Annotated[
         int,
         typer.Option(
@@ -343,10 +353,11 @@ def generate(
     logger.info(f"Will save outputs to ./{relative_path(save_dir)}")
 
     # Handle input video if specified
-    if model_config.input_video:
-        input_video_path = str(model_config.input_video.resolve())
+    video_tensor = None
+    if model_config.input_video and str(model_config.input_video) != ".":
+        input_video_path = str(model_config.input_video)
         logger.info(f"Loading video from: {input_video_path}")
-        video_tensor = load_video_frames(input_video_path, length, target_fps=model_config.video_fps, sample_size=224, is_image=False)
+        video_tensor = load_video_frames(input_video_path, length, target_fps=model_config.video_fps, sample_size=512, is_image=False)
         logger.debug(f"Video tensor shape {video_tensor.shape}")
         # save_video(video_tensor, save_dir.joinpath("initial.gif"))
 
@@ -354,7 +365,7 @@ def generate(
         for idx, pixel_value in enumerate(video_tensor_out):
             pixel_value = pixel_value[None, ...]
             # save_frames(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}")
-            save_video(pixel_value, save_dir.joinpath("initial.gif"))
+            save_video(pixel_value, save_dir.joinpath("initial.mp4"))
 
     # beware the pipeline
     global pipeline
@@ -438,6 +449,7 @@ def generate(
                 context_frames=context,
                 context_overlap=overlap,
                 context_stride=stride,
+                context_loop=loop,
                 clip_skip=model_config.clip_skip,
                 video_tensor=video_tensor,
             )
@@ -453,7 +465,7 @@ def generate(
     if save_merged:
         logger.info("Output merged output video...")
         merged_output = torch.concat(outputs, dim=0)
-        save_video(merged_output, save_dir.joinpath("final.gif"))
+        save_video(merged_output, save_dir.joinpath("final.mp4"))
 
     logger.info("Done, exiting...")
     cli.info

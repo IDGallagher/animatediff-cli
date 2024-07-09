@@ -337,7 +337,7 @@ def train_ad(
                     for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
                         pixel_value = pixel_value[None, ...]
                         # save_frames(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}")
-                        save_video(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.gif")
+                        save_video(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.mp4")
                 else:
                     for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
                         pixel_value = pixel_value / 2. + 0.5
@@ -380,7 +380,7 @@ def train_ad(
                                 width        = width,
                                 **validation_data,
                             ).videos
-                        save_video(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
+                        save_video(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.mp4")
                         samples.append(sample)
                     else:
                         with torch.inference_mode(True):

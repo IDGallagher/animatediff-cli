@@ -73,9 +73,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             DPMSolverMultistepScheduler,
         ],
         feature_extractor: CLIPImageProcessor,
-        ip_adapter_scale: float = 1,
-        ip_adapter_is_plus: bool = True,
-        load_ip_adapter: bool = False,
     ):
         super().__init__()
 
@@ -341,7 +338,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
 
         return prompt_embeds
 
-    def load_ip_adapter(self, is_plus:bool=True, scale:float=1):
+    def load_ip_adapter(self, is_plus:bool=True, scale:float=0.5):
         if self.ip_adapter is None:
             img_enc_path = "data/models/ip_adapter/laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
 
@@ -497,9 +494,11 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         context_stride: int = 3,
         context_overlap: int = 4,
         context_schedule: str = "uniform",
+        context_loop: bool = False,
         clip_skip: int = 1,
         pos_image_embeds: Optional[torch.FloatTensor] = None,
         neg_image_embeds: Optional[torch.FloatTensor] = None,
+        is_single_prompt_mode: bool = False,
         **kwargs,
     ):
         if prompt is None and prompt_map is None:
@@ -619,7 +618,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         ### image
         if self.ip_adapter:
             im_prompt_embeds_map = {}
-            ip_im_map = {i: torch.tensor([]) for i in range(16)}
+            ip_im_map = {i: torch.tensor([]) for i in range(pos_image_embeds.shape[0])}
 
             # ip_im_map = dict(sorted(ip_im_map.items()))
 
@@ -679,7 +678,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
 
             return get_tensor_interpolation_method()( im_prompt_embeds_map[key_prev], im_prompt_embeds_map[key_next], rate)
 
-        def get_current_prompt_embeds_multi(
+        def get_frame_embeds(
                 context: List[int] = None,
                 video_length : int = 0
                 ):
@@ -758,6 +757,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             context_frames,
             context_stride,
             context_overlap,
+            context_loop
         )
 
         # 7. Denoising loop
@@ -786,7 +786,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                         self.unet.device, self.unet.dtype
                     )
 
-                    cur_prompt = get_current_prompt_embeds_multi(context,video_length)
+                    cur_prompt = get_frame_embeds(context, latents.shape[2])
+
                     # predict the noise residual
                     pred = self.unet(
                         latent_model_input,

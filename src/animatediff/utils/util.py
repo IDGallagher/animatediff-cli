@@ -2,6 +2,7 @@ import random
 from os import PathLike
 from pathlib import Path
 
+import ffmpeg
 import torch
 from decord import VideoReader, cpu, gpu
 from einops import rearrange
@@ -88,7 +89,7 @@ def save_frames(video: Tensor, frames_dir: PathLike):
         save_image(frame, frames_dir.joinpath(f"{idx:03d}.png"))
 
 
-def save_video(video: Tensor, save_path: PathLike, fps: int = 8):
+def save_gif(video: Tensor, save_path: PathLike, fps: int = 8):
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -108,6 +109,40 @@ def save_video(video: Tensor, save_path: PathLike, fps: int = 8):
     images[0].save(
         fp=save_path, format="GIF", append_images=images[1:], save_all=True, duration=(1 / fps * 1000), loop=0
     )
+
+def save_video(video: torch.Tensor, save_path: str, fps: int = 8):
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if video.ndim == 5:
+        # batch, channels, frame, width, height -> frame, channels, width, height
+        video = video.squeeze(0)  # Assume a single batch
+    if video.ndim == 4:
+        # channels, frame, width, height -> frame, width, height, channels
+        video = video.permute(1, 2, 3, 0)
+    else:
+        raise ValueError(f"video must be 4 or 5 dimensional, got {video.ndim}")
+
+    # Convert tensor to numpy array and scale from 0 to 255
+    video_np = video.mul(255).add_(0.5).clamp_(0, 255).to('cpu', torch.uint8).numpy()
+
+    # Define process inputs for ffmpeg
+    process = (
+        ffmpeg
+        .input('pipe:', format='rawvideo', pix_fmt='rgb24', s='{}x{}'.format(video.shape[2], video.shape[1]), r=fps)
+        .output(str(save_path), pix_fmt='yuv420p', vcodec='libx264', r=fps)
+        .overwrite_output()
+        .run_async(pipe_stdin=True)
+    )
+
+    # Write video frames to stdin
+    for frame in video_np:
+        process.stdin.write(frame.tobytes())
+
+    # Close the process
+    process.stdin.close()
+    process.wait()
+
 
 def relative_path(path: PathLike, base: PathLike = Path.cwd()) -> str:
     path = Path(path).resolve()

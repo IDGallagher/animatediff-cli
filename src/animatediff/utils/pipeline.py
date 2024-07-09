@@ -57,7 +57,7 @@ def get_context_params(
     length: int,
     context: Optional[int] = None,
     overlap: Optional[int] = None,
-    stride: Optional[int] = None,
+    stride: Optional[int] = None
 ):
     if context is None:
         context = min(length, 16)

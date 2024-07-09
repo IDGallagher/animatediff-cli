@@ -153,6 +153,7 @@ def run_inference(
     context_stride: int = 3,
     context_overlap: int = 4,
     context_schedule: str = "uniform",
+    context_loop: bool = False,
     clip_skip: int = 1,
     return_dict: bool = False,
     video_tensor: Optional[torch.FloatTensor] = None,
@@ -167,6 +168,7 @@ def run_inference(
     else:
         seed = torch.seed()
 
+    pos_image_embeds, neg_image_embeds = None, None
     if video_tensor is not None:
         pipeline.load_ip_adapter()
         # Normalize tensor if necessary (this depends on how it was preprocessed)
@@ -200,6 +202,7 @@ def run_inference(
             context_stride=context_stride + 1,
             context_overlap=context_overlap,
             context_schedule=context_schedule,
+            context_loop=context_loop,
             clip_skip=clip_skip,
             pos_image_embeds=pos_image_embeds,
             neg_image_embeds=neg_image_embeds,
@@ -213,7 +216,7 @@ def run_inference(
 
     # generate the output filename and save the video
     out_str = f"{idx:02d}_{seed}_{prompt_str}"[:250]
-    out_file = out_dir.joinpath(f"{out_str}.gif")
+    out_file = out_dir.joinpath(f"{out_str}.mp4")
     if return_dict is True:
         save_video(pipeline_output["videos"], out_file)
     else:
