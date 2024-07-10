@@ -25,12 +25,13 @@ from animatediff.pipelines import AnimationPipeline, load_text_embeddings
 from animatediff.settings import (CKPT_EXTENSIONS, InferenceConfig,
                                   ModelConfig, get_infer_config,
                                   get_model_config)
-from animatediff.train import train_ad
 from animatediff.utils.model import checkpoint_to_pipeline, get_base_model
 from animatediff.utils.pipeline import get_context_params, send_to_device
 from animatediff.utils.util import (load_video_frames, relative_path,
                                     save_frames, save_video,
                                     set_tensor_interpolation_method)
+from training import train_ad
+from training.dist import cleanup_dist, init_dist
 
 cli: typer.Typer = typer.Typer(
     context_settings=dict(help_option_names=["-h", "--help"]),
@@ -74,6 +75,10 @@ class DistLauncher(str, Enum):
     pytorch = "pytorch"
     slurm = "slurm"
 
+class TrainLauncher(str, Enum):
+    animatediff = "animatediff"
+    motionpredictor = "motionpredictor"
+
 def version_callback(value: bool):
     if value:
         console.print(f"AnimateDiff v{__version__}")
@@ -81,6 +86,13 @@ def version_callback(value: bool):
 
 @cli.command()
 def train(
+    model: Annotated[
+        TrainLauncher,
+        typer.Argument(
+            help="Which model are you training?",
+            rich_help_panel="Advanced",
+        ),
+    ],
     config: Annotated[
         Path,
         typer.Option(
@@ -134,7 +146,11 @@ def train(
 ):
     name   = Path(config).stem
     config = OmegaConf.load(config)
-    train_ad(name=name, launcher=launcher, use_wandb=wandb, use_xformers=use_xformers, force_half=force_half_vae, **config)
+    if model == TrainLauncher.animatediff:
+        train_ad(name=name, launcher=launcher, use_wandb=wandb, use_xformers=use_xformers, force_half=force_half_vae, **config)
+    elif model == TrainLauncher.motionpredictor:
+        train_mp(**config)
+
     logger.info("Training Done, exiting...")
     cli.info
 

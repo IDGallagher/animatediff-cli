@@ -8,7 +8,8 @@ import random
 import subprocess
 import sys
 from enum import Enum
-from typing import Dict, Optional, Tuple
+from functools import partial
+from typing import Callable, Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -26,30 +27,20 @@ from torch.utils.data.distributed import DistributedSampler
 from tqdm.auto import tqdm
 from transformers import CLIPImageProcessor, CLIPTokenizer
 
+import training
 import wandb
-from animatediff.dataset import make_dataloader, make_dataset
 from animatediff.models.clip import CLIPSkipTextModel
 from animatediff.models.unet import UNet3DConditionModel
 from animatediff.pipelines.animation import AnimationPipeline
 from animatediff.schedulers import get_scheduler
 from animatediff.utils.device import get_memory_format, get_model_dtypes
 from animatediff.utils.util import relative_path, save_frames, save_video
+from training.dataset import make_dataloader, make_dataset
+
+from .utils import LogType, zero_rank_partial
 
 logger = logging.getLogger(__name__)
-
-class LogType(str, Enum):
-    info = "info"
-    debug = "debug"
-    error = "error"
-
-def zero_rank_print(s, logtype:LogType = LogType.info):
-    if (not dist.is_initialized()) or (dist.is_initialized() and dist.get_rank() == 0):
-        if logtype == LogType.info:
-            logger.info(s)
-        elif logtype == LogType.debug:
-            logger.debug(s)
-        elif logtype == LogType.error:
-            logger.error(s)
+zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
 
 def init_dist(launcher="slurm", backend='gloo', port=29500, **kwargs):
     """Initializes distributed environment."""
@@ -380,7 +371,7 @@ def train_ad(
                                 width        = width,
                                 **validation_data,
                             ).videos
-                        save_video(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.mp4")
+                        save_video(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
                         samples.append(sample)
                     else:
                         with torch.inference_mode(True):

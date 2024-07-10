@@ -1,7 +1,3 @@
-import csv
-import io
-import math
-import os
 import random
 import sys
 from functools import partial
@@ -14,7 +10,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
 
 sys.path.append("./webdataset/")
-import wids as wids
+import wids as wids  # type: ignore
 
 import webdataset as wds
 

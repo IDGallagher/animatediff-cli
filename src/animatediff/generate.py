@@ -13,13 +13,13 @@ from transformers import CLIPImageProcessor, CLIPTokenizer
 from animatediff import get_dir
 from animatediff.models.clip import CLIPSkipTextModel
 from animatediff.models.unet import UNet3DConditionModel
-from animatediff.motion_predictor.motion_predictor import MotionPredictor
 from animatediff.pipelines import AnimationPipeline, load_text_embeddings
 from animatediff.schedulers import get_scheduler
 from animatediff.settings import InferenceConfig, ModelConfig
 from animatediff.utils.model import (ensure_motion_modules,
                                      get_checkpoint_weights)
 from animatediff.utils.util import save_frames, save_images, save_video
+from motion_predictor.motion_predictor import MotionPredictor
 
 logger = logging.getLogger(__name__)
 

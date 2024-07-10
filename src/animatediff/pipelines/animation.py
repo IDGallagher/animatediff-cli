@@ -24,13 +24,13 @@ from packaging import version
 from tqdm.rich import tqdm
 from transformers import CLIPImageProcessor, CLIPTokenizer
 
-from animatediff.ip_adapter.ip_adapter import IPAdapter, IPAdapterPlus
 from animatediff.models.clip import CLIPSkipTextModel
 from animatediff.models.unet import UNet3DConditionModel
 from animatediff.pipelines.context import (get_context_scheduler,
                                            get_total_steps)
 from animatediff.utils.model import nop_train
 from animatediff.utils.util import get_tensor_interpolation_method
+from ip_adapter import IPAdapter, IPAdapterPlus
 
 logger = logging.getLogger(__name__)
 
