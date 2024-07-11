@@ -3,8 +3,10 @@ from typing import List
 
 import torch
 from diffusers import StableDiffusionPipeline
+from einops import rearrange
 from PIL import Image
-from transformers import CLIPImageProcessor, CLIPVisionModelWithProjection
+from transformers import (CLIPImageProcessor, CLIPModel, CLIPProcessor,
+                          CLIPVisionModelWithProjection)
 
 from .utils import is_torch2_available
 
@@ -261,3 +263,21 @@ class IPAdapterPlus(IPAdapter):
         uncond_clip_image_embeds = self.image_encoder(torch.zeros_like(clip_image), output_hidden_states=True).hidden_states[-2]
         uncond_image_prompt_embeds = self.image_proj_model(uncond_clip_image_embeds)
         return image_prompt_embeds, uncond_image_prompt_embeds
+
+    @torch.inference_mode()
+    def get_image_embeds_preprocessed(self, clip_image):
+        # Capture frames per batch
+        frames_per_batch = clip_image.shape[1]
+
+        # Rearrange to combine batch and frame dimensions for processing
+        clip_image = rearrange(clip_image, 'b f c h w -> (b f) c h w')
+
+        # Process the image as needed
+        clip_image = clip_image.to(self.device, dtype=torch.float16)
+        clip_image_embeds = self.image_encoder(clip_image, output_hidden_states=True).hidden_states[-2]
+        image_prompt_embeds = self.image_proj_model(clip_image_embeds)
+
+        # We end up with b*f tokens with 768 channels
+        image_prompt_embeds = rearrange(image_prompt_embeds, '(b f) t c -> b f t c', f=frames_per_batch)
+
+        return image_prompt_embeds

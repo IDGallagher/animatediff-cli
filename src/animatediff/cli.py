@@ -30,7 +30,7 @@ from animatediff.utils.pipeline import get_context_params, send_to_device
 from animatediff.utils.util import (load_video_frames, relative_path,
                                     save_frames, save_video,
                                     set_tensor_interpolation_method)
-from training import train_ad
+from training import train_ad, train_mp
 from training.dist import cleanup_dist, init_dist
 
 cli: typer.Typer = typer.Typer(
@@ -123,34 +123,22 @@ def train(
             help="Use Weights and Biases",
             rich_help_panel="Advanced",
         ),
-    ] = False,
-    use_xformers: Annotated[
-        bool,
-        typer.Option(
-            "--xformers",
-            "-x",
-            is_flag=True,
-            help="Use XFormers instead of SDP Attention",
-            rich_help_panel="Advanced",
-        ),
-    ] = False,
-    force_half_vae: Annotated[
-        bool,
-        typer.Option(
-            "--half-vae",
-            is_flag=True,
-            help="Force VAE to use fp16 (not recommended)",
-            rich_help_panel="Advanced",
-        ),
-    ] = False,
+    ] = False
 ):
     name   = Path(config).stem
     config = OmegaConf.load(config)
-    if model == TrainLauncher.animatediff:
-        train_ad(name=name, launcher=launcher, use_wandb=wandb, use_xformers=use_xformers, force_half=force_half_vae, **config)
-    elif model == TrainLauncher.motionpredictor:
-        train_mp(**config)
 
+    if sys.platform == "win32":
+        device_id = init_dist(backend='gloo')
+    else:
+        device_id = init_dist()
+
+    if model == TrainLauncher.animatediff:
+        train_ad(name=name, use_wandb=wandb, device_id=device_id, **config)
+    elif model == TrainLauncher.motionpredictor:
+        train_mp(name=name, use_wandb=wandb, device_id=device_id, **config)
+
+    cleanup_dist()
     logger.info("Training Done, exiting...")
     cli.info
 

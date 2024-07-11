@@ -1,82 +1,244 @@
-from typing import List
+import datetime
+import inspect
+import logging
+import math
+import os
+from functools import partial
+from typing import Callable, Dict, List, Tuple
+
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
-import torch.distributed as dist
+from diffusers import StableDiffusionPipeline
+from diffusers.optimization import get_scheduler as get_lr_scheduler
+from omegaconf import OmegaConf
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import Dataset
-import wandb
+from torchvision.transforms.functional import to_pil_image
+from tqdm import tqdm
 
-from animatediff.dataset import make_dataloader, make_dataset
+import wandb
+from ip_adapter import IPAdapter, IPAdapterPlus
+from motion_predictor.motion_predictor import MotionPredictor
+from training.dataset_mp import make_dataloader, make_dataset
+
+from .utils import LogType, zero_rank_partial
+
+logger = logging.getLogger(__name__)
+zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
+
+
+def load_ip_adapter(sd_model_path:str, is_plus:bool=True, scale:float=1.0, device='cpu'):
+    img_enc_path = "data/models/ip_adapter/laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
+
+    # We're just using this pipeline to get unet parameters. It can be safely deleted once we're intialized
+    temp_pipeline = StableDiffusionPipeline.from_pretrained(sd_model_path)
+
+    if is_plus:
+        ip_adapter = IPAdapterPlus(temp_pipeline, img_enc_path, "data/models/ip_adapter/ip-adapter-plus_sd15.bin", device, 16)
+    else:
+        ip_adapter = IPAdapter(temp_pipeline, img_enc_path, "data/models/ip_adapter/ip-adapter_sd15.bin", device, 4)
+    ip_adapter.set_scale(scale)
+
+    # Delete pipeline and return
+    ip_adapter.pipe = None
+    del temp_pipeline
+    torch.cuda.empty_cache()
+    return ip_adapter
 
 def train_mp(
-    model: nn.Module,
-    dataset: Dataset,
-    num_epochs: int = 10,
-    batch_size: int = 4,
-    lr: float = 0.001,
-    gradient_accumulation_steps: int = 4,
-    clip_grad_norm: float = 1.0,
-    shards: List[str],
-    wandb_project: str,
-    wandb_entity: str,
-    device_id: int
+        name: str,
+        use_wandb: bool,
+
+        output_dir: str,
+        sd_model_path: str,
+
+        train_data: Dict,
+        validation_data: Dict,
+        device_id: int,
+
+        max_train_epoch: int = -1,
+        max_train_steps: int = 100,
+        validation_steps: int = 100,
+        validation_steps_tuple: Tuple = (-1,),
+
+        learning_rate: float = 3e-5,
+        scale_lr: bool = False,
+        lr_warmup_steps: int = 0,
+        lr_scheduler: str = "constant",
+
+        num_workers: int = 1,
+        train_batch_size: int = 1,
+        adam_beta1: float = 0.9,
+        adam_beta2: float = 0.999,
+        adam_weight_decay: float = 1e-2,
+        adam_epsilon: float = 1e-08,
+        max_grad_norm: float = 1.0,
+        gradient_accumulation_steps: int = 1,
+        gradient_checkpointing: bool = False,
+        checkpointing_epochs: int = 5,
+        checkpointing_steps: int = -1,
+
+        mixed_precision_training: bool = True,
+        enable_xformers_memory_efficient_attention: bool = True,
+
+        global_seed: int = 42,
+        is_debug: bool = False,
 ):
-    """
-    Train a model using PyTorch DistributedDataParallel.
+    # Initialize distributed training
+    global_rank     = dist.get_rank()
+    num_processes   = dist.get_world_size()
+    is_main_process = global_rank == 0
 
-    Args:
-        model (nn.Module): The PyTorch model to train.
-        dataset (Dataset): Dataset object to use for training.
-        num_epochs (int, optional): Total number of epochs to train. Defaults to 10.
-        batch_size (int, optional): Batch size per process. Defaults to 4.
-        lr (float, optional): Learning rate for the optimizer. Defaults to 0.001.
-        gradient_accumulation_steps (int, optional): Number of steps to accumulate gradients before a backward pass. Defaults to 4.
-        clip_grad_norm (float, optional): Max norm for gradient clipping. Defaults to 1.0.
-        shards (List[str]): Paths to dataset shards.
-        wandb_project (str): Project name for Weights & Biases logging.
-        wandb_entity (str): Entity name for Weights & Biases.
-        device_id (int): GPU device ID for this process.
-    """
-    # Initialize WandB
-    wandb.init(project=wandb_project, entity=wandb_entity)
+    seed = global_seed + global_rank
+    torch.manual_seed(seed)
 
-    # Set up the device and DDP
-    device = torch.device(f"cuda:{device_id}" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    model = DDP(model, device_ids=[device_id], output_device=device_id)
+    # Logging folder
+    folder_name = "debug" if is_debug else name + datetime.datetime.now().strftime("-%Y-%m-%dT%H-%M-%S")
+    output_dir = os.path.join(output_dir, folder_name)
+    if is_debug and os.path.exists(output_dir):
+        os.system(f"rm -rf {output_dir}")
+
+    *_, config = inspect.getargvalues(inspect.currentframe())
+
+    if is_main_process and (not is_debug) and use_wandb:
+        run = wandb.init(project="motionpredictor", name=folder_name, config=config)
+
+    # Handle the output folder creation
+    if is_main_process:
+        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(f"{output_dir}/samples", exist_ok=True)
+        os.makedirs(f"{output_dir}/sanity_check", exist_ok=True)
+        os.makedirs(f"{output_dir}/checkpoints", exist_ok=True)
+        OmegaConf.save(config, os.path.join(output_dir, 'config.yaml'))
+
+    # Load models and move to GPU
+    ip_adapter = load_ip_adapter(sd_model_path, is_plus=True, device=device_id)
+    model = MotionPredictor(total_frames=train_data.sample_n_frames).to(device=device_id)
+
+    # Freeze IPA
+    # ip_adapter.requires_grad_(False)
+
+    # Set unet trainable parameters
+    trainable_params = list(filter(lambda p: p.requires_grad, model.parameters()))
+    zero_rank_print(f"trainable params number: {len(trainable_params)}")
+    zero_rank_print(f"trainable params scale: {sum(p.numel() for p in trainable_params) / 1e6:.3f} M")
+
+    # enable xformers if available
+    if enable_xformers_memory_efficient_attention:
+        logger.info("Enabling xformers memory-efficient attention")
+        model.enable_xformers_memory_efficient_attention()
+
+    # Enable gradient checkpointing
+    if gradient_checkpointing:
+        logger.info("Enabling gradient checkpointing")
+        model.enable_gradient_checkpointing()
 
     # Optimizer and loss
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.AdamW(
+        trainable_params,
+        lr=learning_rate,
+        betas=(adam_beta1, adam_beta2),
+        weight_decay=adam_weight_decay,
+        eps=adam_epsilon,
+    )
     criterion = nn.MSELoss()
 
     # Prepare the data loader
-    dataset = make_dataset(shards, cache_dir="./tmp")
-    dataloader = make_dataloader(dataset, batch_size=batch_size)
+    train_dataset = make_dataset(**train_data)
+    train_dataloader = make_dataloader(train_dataset, batch_size=train_batch_size, num_workers=num_workers)
+
+    # Get the training iteration
+    if max_train_steps == -1:
+        assert max_train_epoch != -1
+        max_train_steps = max_train_epoch * len(train_dataset)
+
+    if checkpointing_steps == -1:
+        assert checkpointing_epochs != -1
+        checkpointing_steps = checkpointing_epochs * len(train_dataset)
+
+    if scale_lr:
+        learning_rate = (learning_rate * gradient_accumulation_steps * train_batch_size * num_processes)
+
+    # Scheduler
+    lr_scheduler = get_lr_scheduler(
+        lr_scheduler,
+        optimizer=optimizer,
+        num_warmup_steps=lr_warmup_steps * gradient_accumulation_steps,
+        num_training_steps=max_train_steps * gradient_accumulation_steps,
+    )
+
+    # DDP Wrapper
+    model = DDP(model, device_ids=[device_id], output_device=device_id)
+
+    # We need to recalculate our total training steps as the size of the training dataloader may have changed.
+    num_update_steps_per_epoch = math.ceil(len(train_dataset) / gradient_accumulation_steps)
+    # Afterwards we recalculate our number of training epochs
+    num_train_epochs = math.ceil(max_train_steps / num_update_steps_per_epoch)
+
+    # Train!
+    total_batch_size = train_batch_size * num_processes * gradient_accumulation_steps
+
+    if is_main_process:
+        logging.info("***** Running training *****")
+        logging.info(f"  Num examples = {len(train_dataset)}")
+        logging.info(f"  Num Epochs = {num_train_epochs}")
+        logging.info(f"  Instantaneous batch size per device = {train_batch_size}")
+        logging.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+        logging.info(f"  Gradient Accumulation steps = {gradient_accumulation_steps}")
+        logging.info(f"  Total optimization steps = {max_train_steps}")
+    global_step = 0
+    first_epoch = 0
+
+    # Only show the progress bar once on each machine.
+    progress_bar = tqdm(range(global_step, max_train_steps), disable=not is_main_process)
+    progress_bar.set_description("Steps")
+
+    # Support mixed-precision training
+    scaler = torch.cuda.amp.GradScaler() if mixed_precision_training else None
 
     # Training loop
     model.train()
-    for epoch in range(num_epochs):
+    for epoch in range(first_epoch, num_train_epochs):
+        # train_dataloader.sampler.set_epoch(epoch)
+
         epoch_loss = 0
-        progress_bar = tqdm(enumerate(dataloader), total=len(dataloader), desc=f"Epoch {epoch + 1}/{num_epochs}", leave=False)
+        progress_bar = tqdm(enumerate(train_dataloader), total=len(train_dataset), desc=f"Epoch {epoch + 1}/{num_train_epochs}", leave=False)
         for step, batch in progress_bar:
-            start_tokens, end_tokens = batch['start_tokens'].to(device), batch['end_tokens'].to(device)
-            ground_truth = batch['ground_truth'].to(device)
+
+            pixel_values = batch["pixel_values"].to(device_id)
+            logger.debug(f"Pixel values {pixel_values.shape}")
+
+            # Get image embeddings using the provided IP adapter method
+            ground_truth = ip_adapter.get_image_embeds_preprocessed(pixel_values)
+            logger.debug(f"Ground truth shape {ground_truth.shape}")
 
             # Forward pass
-            outputs = model(start_tokens, end_tokens)
-            loss = criterion(outputs, ground_truth) / gradient_accumulation_steps
+            zero_rank_print(f"Forward Pass with Mixed Precision: {mixed_precision_training}", LogType.debug)
+            with torch.cuda.amp.autocast(enabled=mixed_precision_training):
+                outputs = model(ground_truth[:, 0], ground_truth[:, -1])
+                loss = criterion(outputs, ground_truth) / gradient_accumulation_steps
 
-            # Backward pass
-            loss.backward()
+            # Backpropagate loss, accumulate gradients
+            zero_rank_print("Backpropagate", LogType.debug)
+            if mixed_precision_training:
+                scaler.scale(loss).backward()  # Scale the loss; backward pass accumulates gradients
+            else:
+                loss.backward()  # Gradient accumulation without scaling
 
             if (step + 1) % gradient_accumulation_steps == 0:
-                # Gradient clipping
-                torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm)
+                zero_rank_print("=== Accumulate gradients", LogType.debug)
+                if mixed_precision_training:
+                    scaler.unscale_(optimizer)  # Unscale gradients before clipping
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                    scaler.step(optimizer)  # Perform optimizer step
+                    scaler.update()  # Update the scale for next iteration
+                else:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                    optimizer.step()
 
-                # Optimizer step
-                optimizer.step()
-                optimizer.zero_grad()
+                lr_scheduler.step()  # Update learning rate
 
                 # Log to WandB
                 wandb.log({"train_loss": loss.item() * gradient_accumulation_steps, "epoch": epoch})
@@ -84,11 +246,20 @@ def train_mp(
 
             # Update the progress bar
             progress_bar.set_postfix(loss=epoch_loss / (step + 1))
+            global_step += 1
 
-        # Save checkpoint
-        if dist.get_rank() == 0:
-            torch.save(model.state_dict(), f"checkpoint_epoch_{epoch}.pth")
-            wandb.save(f"checkpoint_epoch_{epoch}.pth")
+            # Wandb logging
+            if is_main_process and (not is_debug) and use_wandb:
+                wandb.log({"train_loss": (loss * gradient_accumulation_steps).item()}, step=global_step)
+
+            # Save checkpoint
+            # if is_main_process and (global_step % checkpointing_steps == 0 or step == len(train_dataset) - 1):
+            if is_main_process and (global_step % checkpointing_steps == 0):
+                torch.save(model.state_dict(), f"checkpoint_epoch_{epoch}.pth")
+                wandb.save(f"checkpoint_epoch_{epoch}.pth")
+
+            if global_step >= max_train_steps:
+                break
 
     # Cleanup
     dist.barrier()

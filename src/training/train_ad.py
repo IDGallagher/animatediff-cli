@@ -35,65 +35,26 @@ from animatediff.pipelines.animation import AnimationPipeline
 from animatediff.schedulers import get_scheduler
 from animatediff.utils.device import get_memory_format, get_model_dtypes
 from animatediff.utils.util import relative_path, save_frames, save_video
-from training.dataset import make_dataloader, make_dataset
+from training.dataset_ad import make_dataloader, make_dataset
 
 from .utils import LogType, zero_rank_partial
 
 logger = logging.getLogger(__name__)
 zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
 
-def init_dist(launcher="slurm", backend='gloo', port=29500, **kwargs):
-    """Initializes distributed environment."""
-    # os.environ['MASTER_ADDR'] = 'localhost'
-    # os.environ['WORLD_SIZE'] = '1'
-    # os.environ['RANK'] = '0'
-    # os.environ['MASTER_PORT'] = str(port)
-    try:
-        if launcher == 'pytorch':
-            rank = int(os.environ['RANK'])
-            num_gpus = torch.cuda.device_count()
-            local_rank = rank % num_gpus
-            torch.cuda.set_device(local_rank)
-            dist.init_process_group(backend=backend, **kwargs)
-
-        elif launcher == 'slurm':
-            proc_id = int(os.environ['SLURM_PROCID'])
-            ntasks = int(os.environ['SLURM_NTASKS'])
-            node_list = os.environ['SLURM_NODELIST']
-            num_gpus = torch.cuda.device_count()
-            local_rank = proc_id % num_gpus
-            torch.cuda.set_device(local_rank)
-            addr = subprocess.getoutput(
-                f'scontrol show hostname {node_list} | head -n1')
-            os.environ['MASTER_ADDR'] = addr
-            os.environ['WORLD_SIZE'] = str(ntasks)
-            os.environ['RANK'] = str(proc_id)
-            port = os.environ.get('PORT', port)
-            os.environ['MASTER_PORT'] = str(port)
-            dist.init_process_group(backend=backend)
-            zero_rank_print(f"proc_id: {proc_id}; local_rank: {local_rank}; ntasks: {ntasks}; node_list: {node_list}; num_gpus: {num_gpus}; addr: {addr}; port: {port}")
-        else:
-            raise NotImplementedError(f'Not implemented launcher type: `{launcher}`!')
-    except KeyError:
-        logging.error("Environment variables not set. Use 'torchrun --nnodes=1 --nproc_per_node=1' to launch.")
-        sys.exit(1)
-    return local_rank
-
-
 def train_ad(
     image_finetune: bool,
 
     name: str,
     use_wandb: bool,
-    launcher: str,
-    use_xformers: bool,
-    force_half: bool,
 
     output_dir: str,
-    pretrained_model_path: str,
+    sd_model_path: str,
 
     train_data: Dict,
     validation_data: Dict,
+    device_id: int,
+
     cfg_random_null_text: bool = True,
     cfg_random_null_text_ratio: float = 0.1,
 
@@ -132,7 +93,6 @@ def train_ad(
     is_debug: bool = False,
 ):
     # Initialize distributed training
-    local_rank      = init_dist(launcher=launcher)
     global_rank     = dist.get_rank()
     num_processes   = dist.get_world_size()
     is_main_process = global_rank == 0
@@ -163,20 +123,20 @@ def train_ad(
     noise_scheduler = get_scheduler("ddim", OmegaConf.to_container(noise_scheduler_kwargs))
     zero_rank_print(f'Using scheduler "ddim" ({noise_scheduler.__class__.__name__})', LogType.info)
     logger.debug("Loading tokenizer...")
-    tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(pretrained_model_path, subfolder="tokenizer")
+    tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(sd_model_path, subfolder="tokenizer")
     logger.debug("Loading text encoder...")
-    text_encoder: CLIPSkipTextModel = CLIPSkipTextModel.from_pretrained(pretrained_model_path, subfolder="text_encoder")
+    text_encoder: CLIPSkipTextModel = CLIPSkipTextModel.from_pretrained(sd_model_path, subfolder="text_encoder")
     logger.debug("Loading VAE...")
-    vae: AutoencoderKL = AutoencoderKL.from_pretrained(pretrained_model_path, subfolder="vae")
+    vae: AutoencoderKL = AutoencoderKL.from_pretrained(sd_model_path, subfolder="vae")
     logger.debug("Loading Unet...")
     if not image_finetune:
         unet = UNet3DConditionModel.from_pretrained_2d(
-            pretrained_model_path, subfolder="unet",
+            sd_model_path, subfolder="unet",
             motion_module_path="C:/dev/animatediff-cli/data/models/motion-module/mm_sd_v15_v2.ckpt",
             unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs)
         )
     else:
-        unet = UNet2DConditionModel.from_pretrained(pretrained_model_path, subfolder="unet")
+        unet = UNet2DConditionModel.from_pretrained(sd_model_path, subfolder="unet")
 
     # Load pretrained unet weights
     if unet_checkpoint_path != "":
@@ -215,7 +175,7 @@ def train_ad(
     zero_rank_print(f"trainable params scale: {sum(p.numel() for p in trainable_params) / 1e6:.3f} M")
 
     # enable xformers if available
-    if use_xformers:
+    if enable_xformers_memory_efficient_attention:
         logger.info("Enabling xformers memory-efficient attention")
         unet.enable_xformers_memory_efficient_attention()
 
@@ -226,14 +186,14 @@ def train_ad(
 
     # Move models to GPU
 
-    # unet_dtype, tenc_dtype, vae_dtype = get_model_dtypes(local_rank, force_half)
-    # model_memory_format = get_memory_format(local_rank)
+    # unet_dtype, tenc_dtype, vae_dtype = get_model_dtypes(device_id, force_half)
+    # model_memory_format = get_memory_format(device_id)
 
-    # text_encoder = text_encoder.to(device=local_rank, dtype=tenc_dtype)
-    # vae = vae.to(device=local_rank, dtype=vae_dtype, memory_format=model_memory_format)
+    # text_encoder = text_encoder.to(device=device_id, dtype=tenc_dtype)
+    # vae = vae.to(device=device_id, dtype=vae_dtype, memory_format=model_memory_format)
 
-    text_encoder = text_encoder.to(device=local_rank)
-    vae = vae.to(device=local_rank)
+    text_encoder = text_encoder.to(device=device_id)
+    vae = vae.to(device=device_id)
 
     # Get the training dataset
     train_dataset = make_dataset(**train_data)
@@ -281,9 +241,9 @@ def train_ad(
     )
 
     # DDP wrapper
-    unet_single = unet.to(device=local_rank)
+    unet_single = unet.to(device=device_id)
     # unet_single = torch.compile(unet_single)
-    unet = DDP(unet_single, device_ids=[local_rank], output_device=local_rank)
+    unet = DDP(unet_single, device_ids=[device_id], output_device=device_id)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataset) / gradient_accumulation_steps)
@@ -311,9 +271,9 @@ def train_ad(
     # Support mixed-precision training
     scaler = torch.cuda.amp.GradScaler() if mixed_precision_training else None
 
+    unet.train()
     for epoch in range(first_epoch, num_train_epochs):
         train_dataloader.sampler.set_epoch(epoch)
-        unet.train()
 
         for step, batch in enumerate(train_dataloader):
             if cfg_random_null_text:
@@ -342,10 +302,10 @@ def train_ad(
                 if not image_finetune:
                     validation_pipeline = AnimationPipeline(
                         unet=unet_single, vae=vae, tokenizer=tokenizer, text_encoder=text_encoder, scheduler=noise_scheduler, feature_extractor=None,
-                    ).to(local_rank)
+                    ).to(device_id)
                 else:
                     validation_pipeline = StableDiffusionPipeline.from_pretrained(
-                        pretrained_model_path,
+                        sd_model_path,
                         unet=unet_single, vae=vae, tokenizer=tokenizer, text_encoder=text_encoder, scheduler=noise_scheduler, safety_checker=None,
                     )
                 validation_pipeline.enable_vae_slicing()
@@ -395,18 +355,18 @@ def train_ad(
 
             zero_rank_print("Convert videos to latent space", LogType.debug)
             # Convert videos to latent space
-            # pixel_values = batch["pixel_values"].to(local_rank, dtype=vae_dtype, memory_format=model_memory_format)
-            pixel_values = batch["pixel_values"].to(local_rank)
+            # pixel_values = batch["pixel_values"].to(device_id, dtype=vae_dtype, memory_format=model_memory_format)
+            pixel_values = batch["pixel_values"].to(device_id)
             video_length = pixel_values.shape[1]
             with torch.no_grad():
                 if not image_finetune:
                     pixel_values = rearrange(pixel_values, "b f c h w -> (b f) c h w")
-                    # pixel_values = pixel_values.to(local_rank, dtype=vae_dtype, memory_format=model_memory_format)
+                    # pixel_values = pixel_values.to(device_id, dtype=vae_dtype, memory_format=model_memory_format)
                     latents = vae.encode(pixel_values).latent_dist
                     latents = latents.sample()
                     latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
                 else:
-                    # pixel_values = pixel_values.to(local_rank, dtype=vae_dtype, memory_format=model_memory_format)
+                    # pixel_values = pixel_values.to(device_id, dtype=vae_dtype, memory_format=model_memory_format)
                     latents = vae.encode(pixel_values).latent_dist
                     latents = latents.sample()
 
@@ -418,7 +378,7 @@ def train_ad(
             bsz = latents.shape[0]
 
             # Sample a random timestep for each video
-            timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=local_rank)
+            timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=device_id)
             timesteps = timesteps.long()
 
             # Add noise to the latents according to the noise magnitude at each timestep
@@ -430,7 +390,7 @@ def train_ad(
             with torch.no_grad():
                 prompt_ids = tokenizer(
                     batch['text'], max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
-                ).input_ids.to(local_rank)
+                ).input_ids.to(device_id)
                 encoder_hidden_states = text_encoder(prompt_ids)[0]
 
             del latents, batch

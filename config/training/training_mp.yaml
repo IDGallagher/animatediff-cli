@@ -1,37 +1,11 @@
-image_finetune: false
-
 output_dir: "outputs"
-pretrained_model_path: "C:/dev/VideoTraining/models/StableDiffusion"
-
-unet_additional_kwargs:
-  use_motion_module              : true
-  motion_module_resolutions      : [ 1,2,4,8 ]
-  unet_use_cross_frame_attention : false
-  unet_use_temporal_attention    : false
-
-  motion_module_type: Vanilla
-  motion_module_kwargs:
-    num_attention_heads                : 8
-    num_transformer_block              : 1
-    attention_block_types              : [ "Temporal_Self", "Temporal_Self" ]
-    temporal_position_encoding         : true
-    temporal_position_encoding_max_len : 32
-    temporal_attention_dim_div         : 1
-    zero_initialize                    : False
-
-noise_scheduler_kwargs:
-  num_train_timesteps: 1000
-  beta_start:          0.00085
-  beta_end:            0.012
-  beta_schedule:       "linear"
-  steps_offset:        1
-  clip_sample:         false
+sd_model_path: "C:/dev/VideoTraining/models/StableDiffusion"
 
 train_data:
-  shards:          "s3://webvid-10m/val-shards.json"
+  # shards:          "s3://webvid-10m/val-shards.json"
+  shards:            "s3://webvid-10m/test-shards.json"
   # csv_path:        "./data/test.csv"
   # video_folder:    "./data/videos"
-  sample_size:     128
   target_fps:      8
   sample_n_frames: 16
 
@@ -47,21 +21,15 @@ validation_data:
   context_stride: 1
   context_overlap: 4
 
-
-trainable_modules:
-  - "motion_modules."
-
-unet_checkpoint_path: ""
-
 learning_rate:    1.e-4
 train_batch_size: 1
-gradient_accumulation_steps: 20
-num_workers: 1
+gradient_accumulation_steps: 1
+num_workers: 10
 
 max_train_epoch:      -1
-max_train_steps:      100
+max_train_steps:      1000
 checkpointing_epochs: -1
-checkpointing_steps:  60
+checkpointing_steps:  1000
 
 # validation_steps:       5000
 validation_steps_tuple: [100, 1000]

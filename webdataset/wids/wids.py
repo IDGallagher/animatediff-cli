@@ -262,7 +262,7 @@ class IndexedTarSamples:
 
     def __getitem__(self, idx):
         # Get indexes of files for the sample at index idx
-        print(f"{idx} out of {len(self.samples)}")
+        # print(f"{idx} out of {len(self.samples)}")
         indexes = self.samples[idx]
         sample = {}
         key = None
