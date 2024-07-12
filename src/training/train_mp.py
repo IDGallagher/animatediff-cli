@@ -255,7 +255,11 @@ def train_mp(
             # Save checkpoint
             # if is_main_process and (global_step % checkpointing_steps == 0 or step == len(train_dataset) - 1):
             if is_main_process and (global_step % checkpointing_steps == 0):
-                torch.save(model.state_dict(), f"checkpoint_epoch_{epoch}.pth")
+                # Assuming the model is wrapped in DataParallel or DistributedDataParallel
+                if isinstance(model, (torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel)):
+                    torch.save(model.module.state_dict(), f"motion_predictor_epoch_{epoch}.pth")
+                else:
+                    torch.save(model.state_dict(), f"motion_predictor_epoch_{epoch}.pth")
                 wandb.save(f"checkpoint_epoch_{epoch}.pth")
 
             if global_step >= max_train_steps:

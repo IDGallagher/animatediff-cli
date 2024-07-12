@@ -19,7 +19,7 @@ def get_sinusoidal_encoding(n_positions, d_model):
 
 class MotionPredictor(ModelMixin, ConfigMixin):
     def __init__(self, token_dim:int=768, hidden_dim:int=1024, num_heads:int=16, num_layers:int=8, total_frames:int=16, tokens_per_frame:int=16):
-        super().__init__()
+        super(MotionPredictor, self).__init__()
         self.total_frames = total_frames
         self.tokens_per_frame = tokens_per_frame
 
@@ -37,7 +37,7 @@ class MotionPredictor(ModelMixin, ConfigMixin):
 
     def interpolate_tokens(self, start_tokens:torch.Tensor, end_tokens:torch.Tensor):
         # Linear interpolation in the token space
-        interpolation_steps = torch.linspace(0, 1, steps=self.total_frames, device=start_tokens.device, dtype=torch.float32)[:, None, None]
+        interpolation_steps = torch.linspace(0, 1, steps=self.total_frames, device=start_tokens.device, dtype=torch.float16)[:, None, None]
         start_tokens_expanded = start_tokens.unsqueeze(1)  # Shape becomes [batch_size, 1, tokens, token_dim]
         end_tokens_expanded = end_tokens.unsqueeze(1)      # Shape becomes [batch_size, 1, tokens, token_dim]
         interpolated_tokens = (start_tokens_expanded * (1 - interpolation_steps) + end_tokens_expanded * interpolation_steps)
