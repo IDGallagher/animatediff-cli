@@ -1,6 +1,9 @@
+import io
+import logging
 import random
 import sys
 from functools import partial
+from typing import Callable
 
 import decord
 import numpy as np
@@ -14,15 +17,21 @@ sys.path.append("./webdataset/")
 import wids as wids  # type: ignore
 
 import webdataset as wds
+from training.utils import LogType, zero_rank_partial
 
 decord.bridge.set_bridge('torch')
 
-def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_image=False, **kwargs):
-    try:
-        video_path = sample[".mp4"]
-        caption = sample[".txt"]
+logger = logging.getLogger(__name__)
+zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
 
-        video_reader = decord.VideoReader(video_path)
+def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_image=False, **kwargs):
+    print
+    try:
+        # zero_rank_print(f"Sample {sample}", LogType.debug)
+        video_path = sample["mp4"]
+        caption = sample["txt"]
+
+        video_reader = decord.VideoReader(io.BytesIO(video_path))
         video_length = len(video_reader)
 
         if video_length == 0:
@@ -73,16 +82,22 @@ def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_im
         print(f"Error processing sample: {e}")
         return None
 
-    return dict(pixel_values=pixel_values, text=caption)
+    return pixel_values, caption
 
-def make_dataset(shards, cache_dir="./tmp", **kwargs):
-    trainset = wids.ShardListDataset(shards, cache_dir=cache_dir, keep=True)
-    trainset = trainset.add_transform(partial(make_sample, **kwargs))
-    return trainset
+def make_dataloader(shards, batch_size=1, num_workers=1, epoch_size=1000, **kwargs):
+    assert(epoch_size % batch_size == 0, f"Make epoch_size {epoch_size} divisible by batch_size {batch_size}")
 
-def make_dataloader(dataset, batch_size=1, num_workers=1):
-    sampler = wids.DistributedChunkedSampler(dataset, chunksize=1000, shuffle=True)
-    dataloader = DataLoader(
-        dataset, batch_size=batch_size, sampler=sampler, num_workers=num_workers
-    )
+    dataset = wds.WebDataset(shards, resampled=True, nodesplitter=wds.split_by_node) # , cache_dir="./tmp"
+    dataset = dataset.map(partial(make_sample, **kwargs))
+
+    # For IterableDataset objects, the batching needs to happen in the dataset.
+    dataset = dataset.batched(batch_size)
+    dataloader = wds.WebLoader(dataset, batch_size=None, num_workers=num_workers)
+
+    # We unbatch, shuffle, and rebatch to mix samples from different workers.
+    dataloader = dataloader.unbatched().batched(batch_size)
+
+    # A resampled dataset is infinite size, but we can recreate a fixed epoch length.
+    dataloader = dataloader.with_epoch(epoch_size // batch_size)
+
     return dataloader

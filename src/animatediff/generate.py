@@ -204,12 +204,23 @@ def run_inference(
         pos_image_embeds, neg_image_embeds = pipeline.ip_adapter.get_image_embeds(pil_images)
 
         if interpolate_images:
-            logger.debug(f"Interpolating to create {duration} image embeds")
-            motion_predictor = MotionPredictor(total_frames=duration).to(pipeline.device, dtype=torch.float16)
-            pos_image_embeds = motion_predictor.interpolate_tokens(pos_image_embeds[0], pos_image_embeds[-1])
-            neg_image_embeds = motion_predictor.interpolate_tokens(neg_image_embeds[0], neg_image_embeds[-1])
-            image_embed_frames = range(pos_image_embeds.shape[0])
-            logger.debug(f"Image embeds shape {pos_image_embeds.shape}")
+            logger.debug(f"Interpolating to create {duration} image embeds {pipeline.device}")
+            with torch.inference_mode(True):
+                motion_predictor = MotionPredictor(total_frames=duration).to(pipeline.device, dtype=torch.float16)
+
+                # checkpoint = torch.load('motion_predictor_epoch_0.pth')
+                # Load the state dictionary into the model
+                # motion_predictor.load_state_dict(checkpoint)
+                logger.debug(f"pos_image_embeds {pos_image_embeds.shape}")
+                pos_image_embeds = pos_image_embeds.unsqueeze(0)  # Add batch dimension, shape: (1, sequence_length, feature_dim)
+                pos_image_embeds = motion_predictor(pos_image_embeds[:, 0], pos_image_embeds[:, -1]).squeeze(0)
+                # pos_image_embeds = motion_predictor.interpolate_tokens(pos_image_embeds[:, 0, :], pos_image_embeds[:, -1, :]).squeeze(0)
+                neg_image_embeds = neg_image_embeds.unsqueeze(0)
+                # neg_image_embeds = motion_predictor.interpolate_tokens(neg_image_embeds[:, 0], neg_image_embeds[:, -1]).squeeze(0)
+                neg_image_embeds = motion_predictor.interpolate_tokens(neg_image_embeds[:, 0], neg_image_embeds[:, -1]).squeeze(0)
+                image_embed_frames = range(pos_image_embeds.shape[0])
+                logger.debug(f"pos embeds shape {pos_image_embeds.shape}")
+                logger.debug(f"neg embeds shape {neg_image_embeds.shape}")
         else:
             image_embed_frames = [int(idx) for idx in input_images.keys()]  # Save indices of the frames
             logger.debug(f"Processed image embeds for {len(pil_images)} images")

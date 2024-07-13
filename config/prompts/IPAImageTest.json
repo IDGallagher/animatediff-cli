@@ -11,6 +11,7 @@
     "0":"data/business_man_000.png",
     "15":"data/business_man_015.png"
   },
+  "interpolate_images":true,
   "video_fps":  4,
   "scheduler": "ddim",
   "steps": 25,

@@ -3,10 +3,12 @@ sd_model_path: "C:/dev/VideoTraining/models/StableDiffusion"
 
 train_data:
   # shards:          "s3://webvid-10m/val-shards.json"
-  shards:            "s3://webvid-10m/test-shards.json"
+  # shards:            "pipe:aws s3 cp s3://webvid-10m/val/{00000..00004}.tar -"
+  shards:            "pipe:aws s3 cp s3://webvid-10m/test/00000.tar -"
+
   # csv_path:        "./data/test.csv"
   # video_folder:    "./data/videos"
-  target_fps:      8
+  target_fps:      4
   sample_n_frames: 16
 
 validation_data:
@@ -22,12 +24,12 @@ validation_data:
   context_overlap: 4
 
 learning_rate:    1.e-4
-train_batch_size: 1
+train_batch_size: 3
 gradient_accumulation_steps: 1
-num_workers: 10
+num_workers: 22
 
-max_train_epoch:      -1
-max_train_steps:      1000
+epoch_size:           1000
+num_epochs:           1
 checkpointing_epochs: -1
 checkpointing_steps:  1000
 
@@ -36,7 +38,7 @@ validation_steps_tuple: [100, 1000]
 
 global_seed: 42
 mixed_precision_training: True
-enable_xformers_memory_efficient_attention: True
+enable_xformers_memory_efficient_attention: False
 gradient_checkpointing: False
 
 is_debug: False

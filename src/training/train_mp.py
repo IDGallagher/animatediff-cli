@@ -21,7 +21,7 @@ from tqdm import tqdm
 import wandb
 from ip_adapter import IPAdapter, IPAdapterPlus
 from motion_predictor.motion_predictor import MotionPredictor
-from training.dataset_mp import make_dataloader, make_dataset
+from training.dataset_mp import make_dataloader
 
 from .utils import LogType, zero_rank_partial
 
@@ -58,8 +58,8 @@ def train_mp(
         validation_data: Dict,
         device_id: int,
 
-        max_train_epoch: int = -1,
-        max_train_steps: int = 100,
+        epoch_size:int = 1000,
+        num_epochs:int = 1,
         validation_steps: int = 100,
         validation_steps_tuple: Tuple = (-1,),
 
@@ -116,7 +116,6 @@ def train_mp(
     # Load models and move to GPU
     ip_adapter = load_ip_adapter(sd_model_path, is_plus=True, device=device_id)
     model = MotionPredictor(total_frames=train_data.sample_n_frames).to(device=device_id)
-
     # Freeze IPA
     # ip_adapter.requires_grad_(False)
 
@@ -146,17 +145,16 @@ def train_mp(
     criterion = nn.MSELoss()
 
     # Prepare the data loader
-    train_dataset = make_dataset(**train_data)
-    train_dataloader = make_dataloader(train_dataset, batch_size=train_batch_size, num_workers=num_workers)
+    train_dataloader = make_dataloader(**train_data, batch_size=train_batch_size, num_workers=num_workers)
 
-    # Get the training iteration
-    if max_train_steps == -1:
-        assert max_train_epoch != -1
-        max_train_steps = max_train_epoch * len(train_dataset)
+    # # Get the training iteration
+    # if max_train_steps == -1:
+    #     assert max_train_epoch != -1
+    #     max_train_steps = max_train_epoch * len(train_dataset)
 
-    if checkpointing_steps == -1:
-        assert checkpointing_epochs != -1
-        checkpointing_steps = checkpointing_epochs * len(train_dataset)
+    # if checkpointing_steps == -1:
+    #     assert checkpointing_epochs != -1
+    #     checkpointing_steps = checkpointing_epochs * len(train_dataset)
 
     if scale_lr:
         learning_rate = (learning_rate * gradient_accumulation_steps * train_batch_size * num_processes)
@@ -166,33 +164,28 @@ def train_mp(
         lr_scheduler,
         optimizer=optimizer,
         num_warmup_steps=lr_warmup_steps * gradient_accumulation_steps,
-        num_training_steps=max_train_steps * gradient_accumulation_steps,
+        num_training_steps=epoch_size * num_epochs * gradient_accumulation_steps / train_batch_size,
     )
 
     # DDP Wrapper
     model = DDP(model, device_ids=[device_id], output_device=device_id)
-
-    # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(len(train_dataset) / gradient_accumulation_steps)
-    # Afterwards we recalculate our number of training epochs
-    num_train_epochs = math.ceil(max_train_steps / num_update_steps_per_epoch)
 
     # Train!
     total_batch_size = train_batch_size * num_processes * gradient_accumulation_steps
 
     if is_main_process:
         logging.info("***** Running training *****")
-        logging.info(f"  Num examples = {len(train_dataset)}")
-        logging.info(f"  Num Epochs = {num_train_epochs}")
+        logging.info(f"  Num examples = {epoch_size}")
+        logging.info(f"  Num Epochs = {num_epochs}")
         logging.info(f"  Instantaneous batch size per device = {train_batch_size}")
         logging.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
         logging.info(f"  Gradient Accumulation steps = {gradient_accumulation_steps}")
-        logging.info(f"  Total optimization steps = {max_train_steps}")
+        logging.info(f"  Total optimization steps = {epoch_size * num_epochs * gradient_accumulation_steps / train_batch_size}")
     global_step = 0
     first_epoch = 0
 
     # Only show the progress bar once on each machine.
-    progress_bar = tqdm(range(global_step, max_train_steps), disable=not is_main_process)
+    progress_bar = tqdm(range(global_step, num_epochs*epoch_size), disable=not is_main_process)
     progress_bar.set_description("Steps")
 
     # Support mixed-precision training
@@ -200,14 +193,13 @@ def train_mp(
 
     # Training loop
     model.train()
-    for epoch in range(first_epoch, num_train_epochs):
-        # train_dataloader.sampler.set_epoch(epoch)
+    for epoch in range(first_epoch, num_epochs):
 
         epoch_loss = 0
-        progress_bar = tqdm(enumerate(train_dataloader), total=len(train_dataset), desc=f"Epoch {epoch + 1}/{num_train_epochs}", leave=False)
+        progress_bar = tqdm(enumerate(train_dataloader), total=epoch_size, desc=f"Epoch {epoch + 1}/{num_epochs}", leave=False)
         for step, batch in progress_bar:
 
-            pixel_values = batch["pixel_values"].to(device_id)
+            pixel_values = batch[0].to(device_id)
             logger.debug(f"Pixel values {pixel_values.shape}")
 
             # Get image embeddings using the provided IP adapter method
@@ -252,18 +244,15 @@ def train_mp(
             if is_main_process and (not is_debug) and use_wandb:
                 wandb.log({"train_loss": (loss * gradient_accumulation_steps).item()}, step=global_step)
 
-            # Save checkpoint
-            # if is_main_process and (global_step % checkpointing_steps == 0 or step == len(train_dataset) - 1):
-            if is_main_process and (global_step % checkpointing_steps == 0):
-                # Assuming the model is wrapped in DataParallel or DistributedDataParallel
-                if isinstance(model, (torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel)):
-                    torch.save(model.module.state_dict(), f"motion_predictor_epoch_{epoch}.pth")
-                else:
-                    torch.save(model.state_dict(), f"motion_predictor_epoch_{epoch}.pth")
-                wandb.save(f"checkpoint_epoch_{epoch}.pth")
-
-            if global_step >= max_train_steps:
-                break
+        # Save checkpoint
+        # if is_main_process and (global_step % checkpointing_steps == 0 or step == len(train_dataset) - 1):
+        if is_main_process:
+            # Assuming the model is wrapped in DataParallel or DistributedDataParallel
+            if isinstance(model, (torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel)):
+                torch.save(model.module.state_dict(), f"motion_predictor_epoch_{epoch}.pth")
+            else:
+                torch.save(model.state_dict(), f"motion_predictor_epoch_{epoch}.pth")
+            wandb.save(f"checkpoint_epoch_{epoch}.pth")
 
     # Cleanup
     dist.barrier()
