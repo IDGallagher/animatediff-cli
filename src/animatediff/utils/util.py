@@ -3,6 +3,7 @@ from os import PathLike
 from pathlib import Path
 from typing import List
 
+import decord
 import ffmpeg
 import PIL
 import torch
@@ -70,6 +71,7 @@ def load_video_frames(video_path, sample_n_frames, target_fps, sample_size, is_i
     ])
 
     # Load and transform frames
+    decord.bridge.set_bridge('native')
     frames = video_reader.get_batch(batch_index).asnumpy()
     frames = torch.from_numpy(frames).permute(0, 3, 1, 2).contiguous()  # Convert to tensor (B, C, H, W)
     frames = frames.float() / 255.0  # Convert to float and normalize

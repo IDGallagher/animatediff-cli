@@ -51,7 +51,7 @@ def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_im
 
         # Assuming get_batch() returns a PyTorch tensor
         frames = video_reader.get_batch(batch_index)
-        frames = frames.float() / 255.0  # Normalize the pixel values if they're in the 0-255 range
+        # frames = frames.float() / 255.0  # Normalize the pixel values if they're in the 0-255 range
 
         # Initialize the CLIPImageProcessor with the appropriate configuration
         clip_processor = CLIPImageProcessor(

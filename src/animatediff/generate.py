@@ -208,15 +208,15 @@ def run_inference(
             with torch.inference_mode(True):
                 motion_predictor = MotionPredictor(total_frames=duration).to(pipeline.device, dtype=torch.float16)
 
-                # checkpoint = torch.load('motion_predictor_epoch_0.pth')
+                checkpoint = torch.load('outputs/training_mp-2024-07-13T20-29-41/checkpoints/motion_predictor_epoch_0.pth')
                 # Load the state dictionary into the model
-                # motion_predictor.load_state_dict(checkpoint)
+                motion_predictor.load_state_dict(checkpoint)
                 logger.debug(f"pos_image_embeds {pos_image_embeds.shape}")
                 pos_image_embeds = pos_image_embeds.unsqueeze(0)  # Add batch dimension, shape: (1, sequence_length, feature_dim)
                 pos_image_embeds = motion_predictor(pos_image_embeds[:, 0], pos_image_embeds[:, -1]).squeeze(0)
                 # pos_image_embeds = motion_predictor.interpolate_tokens(pos_image_embeds[:, 0, :], pos_image_embeds[:, -1, :]).squeeze(0)
                 neg_image_embeds = neg_image_embeds.unsqueeze(0)
-                # neg_image_embeds = motion_predictor.interpolate_tokens(neg_image_embeds[:, 0], neg_image_embeds[:, -1]).squeeze(0)
+                # neg_image_embeds = motion_predictor(neg_image_embeds[:, 0], neg_image_embeds[:, -1]).squeeze(0)
                 neg_image_embeds = motion_predictor.interpolate_tokens(neg_image_embeds[:, 0], neg_image_embeds[:, -1]).squeeze(0)
                 image_embed_frames = range(pos_image_embeds.shape[0])
                 logger.debug(f"pos embeds shape {pos_image_embeds.shape}")

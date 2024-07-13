@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.optim as optim
 from diffusers import StableDiffusionPipeline
 from diffusers.optimization import get_scheduler as get_lr_scheduler
+from einops import rearrange
 from omegaconf import OmegaConf
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import Dataset
@@ -19,6 +20,7 @@ from torchvision.transforms.functional import to_pil_image
 from tqdm import tqdm
 
 import wandb
+from animatediff.utils.util import save_frames, save_video
 from ip_adapter import IPAdapter, IPAdapterPlus
 from motion_predictor.motion_predictor import MotionPredictor
 from training.dataset_mp import make_dataloader
@@ -202,6 +204,14 @@ def train_mp(
             pixel_values = batch[0].to(device_id)
             logger.debug(f"Pixel values {pixel_values.shape}")
 
+            # Data batch sanity check
+            if epoch == first_epoch and step < 5:
+                sanity_pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
+                for idx, pixel_value in enumerate(sanity_pixel_values):
+                    pixel_value = pixel_value[None, ...]
+                    save_frames(pixel_value, f"{output_dir}/sanity_check/{epoch}-{step}-{idx}/")
+                    save_video(pixel_value, f"{output_dir}/sanity_check/{epoch}-{step}-{idx}.mp4")
+
             # Get image embeddings using the provided IP adapter method
             ground_truth = ip_adapter.get_image_embeds_preprocessed(pixel_values)
             logger.debug(f"Ground truth shape {ground_truth.shape}")
@@ -233,25 +243,22 @@ def train_mp(
                 lr_scheduler.step()  # Update learning rate
 
                 # Log to WandB
-                wandb.log({"train_loss": loss.item() * gradient_accumulation_steps, "epoch": epoch})
+                if is_main_process and (not is_debug) and use_wandb:
+                    wandb.log({"train_loss": loss.item() * gradient_accumulation_steps, "epoch": epoch})
                 epoch_loss += loss.item() * gradient_accumulation_steps
 
             # Update the progress bar
             progress_bar.set_postfix(loss=epoch_loss / (step + 1))
             global_step += 1
 
-            # Wandb logging
-            if is_main_process and (not is_debug) and use_wandb:
-                wandb.log({"train_loss": (loss * gradient_accumulation_steps).item()}, step=global_step)
-
         # Save checkpoint
         # if is_main_process and (global_step % checkpointing_steps == 0 or step == len(train_dataset) - 1):
         if is_main_process:
             # Assuming the model is wrapped in DataParallel or DistributedDataParallel
             if isinstance(model, (torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel)):
-                torch.save(model.module.state_dict(), f"motion_predictor_epoch_{epoch}.pth")
+                torch.save(model.module.state_dict(), f"{output_dir}/checkpoints/motion_predictor_epoch_{epoch}.pth")
             else:
-                torch.save(model.state_dict(), f"motion_predictor_epoch_{epoch}.pth")
+                torch.save(model.state_dict(), f"{output_dir}/checkpoints/motion_predictor_epoch_{epoch}.pth")
             wandb.save(f"checkpoint_epoch_{epoch}.pth")
 
     # Cleanup

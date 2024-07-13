@@ -5,7 +5,7 @@
   "motion_module": "C:/dev/VideoTraining/models/Motion_Module/mm_sd_v15_v2.ckpt",
   "compile": false,
   "seed": [
-    12345678
+    123456789
   ],
   "input_video": "data/business_man.mp4",
   "video_fps":  4,

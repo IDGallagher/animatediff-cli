@@ -5,7 +5,7 @@
   "motion_module": "C:/dev/VideoTraining/models/Motion_Module/mm_sd_v15_v2.ckpt",
   "compile": false,
   "seed": [
-    12345678
+    42
   ],
   "input_images": {
     "0":"data/business_man_000.png",

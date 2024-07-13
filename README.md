@@ -1,5 +1,6 @@
 torchrun --nnodes=1 --nproc_per_node=1 .\src\animatediff\__main__.py train animatediff -w -c config\training\training_ad.yaml
 torchrun --nnodes=1 --nproc_per_node=1 .\src\animatediff\__main__.py train motionpredictor -w -c config\training\training_mp.yaml
+python .\src\animatediff\__main__.py generate -c config\prompts\IPAImageTest.json  
 
 # animatediff
 [![pre-commit.ci status](https://results.pre-commit.ci/badge/github/neggles/animatediff-cli/main.svg)](https://results.pre-commit.ci/latest/github/neggles/animatediff-cli/main)

@@ -28,8 +28,8 @@ train_batch_size: 3
 gradient_accumulation_steps: 1
 num_workers: 22
 
-epoch_size:           1000
-num_epochs:           1
+epoch_size:           10000
+num_epochs:           1000
 checkpointing_epochs: -1
 checkpointing_steps:  1000
 
