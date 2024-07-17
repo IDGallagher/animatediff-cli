@@ -3,8 +3,8 @@ sd_model_path: "C:/dev/VideoTraining/models/StableDiffusion"
 
 train_data:
   # shards:          "s3://webvid-10m/val-shards.json"
-  # shards:            "pipe:aws s3 cp s3://webvid-10m/val/{00000..00004}.tar -"
-  shards:            "pipe:aws s3 cp s3://webvid-10m/test/00000.tar -"
+  shards:            "pipe:aws s3 cp s3://webvid-10m/val/{00000..00004}.tar -"
+  # shards:            "pipe:aws s3 cp s3://webvid-10m/test/00000.tar -"
 
   # csv_path:        "./data/test.csv"
   # video_folder:    "./data/videos"
@@ -24,9 +24,9 @@ validation_data:
   context_overlap: 4
 
 learning_rate:    1.e-4
-train_batch_size: 3
+train_batch_size: 16
 gradient_accumulation_steps: 1
-num_workers: 22
+num_workers: 10
 
 epoch_size:           10000
 num_epochs:           1000

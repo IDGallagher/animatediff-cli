@@ -208,7 +208,7 @@ def run_inference(
             with torch.inference_mode(True):
                 motion_predictor = MotionPredictor(total_frames=duration).to(pipeline.device, dtype=torch.float16)
 
-                checkpoint = torch.load('outputs/training_mp-2024-07-13T20-29-41/checkpoints/motion_predictor_epoch_0.pth')
+                checkpoint = torch.load('outputs/training_mp-2024-07-14T13-00-47/checkpoints/motion_predictor_epoch_0.pth')
                 # Load the state dictionary into the model
                 motion_predictor.load_state_dict(checkpoint)
                 logger.debug(f"pos_image_embeds {pos_image_embeds.shape}")

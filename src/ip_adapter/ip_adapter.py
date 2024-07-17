@@ -259,6 +259,7 @@ class IPAdapterPlus(IPAdapter):
         clip_image = self.clip_image_processor(images=pil_image, return_tensors="pt").pixel_values
         clip_image = clip_image.to(self.device, dtype=torch.float16)
         clip_image_embeds = self.image_encoder(clip_image, output_hidden_states=True).hidden_states[-2]
+        logger.debug(f"clip_image_embeds {clip_image_embeds.shape}")
         image_prompt_embeds = self.image_proj_model(clip_image_embeds)
         uncond_clip_image_embeds = self.image_encoder(torch.zeros_like(clip_image), output_hidden_states=True).hidden_states[-2]
         uncond_image_prompt_embeds = self.image_proj_model(uncond_clip_image_embeds)

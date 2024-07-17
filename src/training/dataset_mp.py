@@ -9,6 +9,7 @@ import decord
 import numpy as np
 import torch
 import torchvision.transforms as transforms
+from decord import cpu, gpu
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
 from transformers import CLIPImageProcessor
@@ -25,14 +26,14 @@ logger = logging.getLogger(__name__)
 zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
 
 def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_image=False, **kwargs):
-    print
     try:
-        # zero_rank_print(f"Sample {sample}", LogType.debug)
         video_path = sample["mp4"]
         caption = sample["txt"]
+        zero_rank_print(f"Loading {caption}", LogType.debug)
 
-        video_reader = decord.VideoReader(io.BytesIO(video_path))
+        video_reader = decord.VideoReader(io.BytesIO(video_path), ctx=cpu(0))
         video_length = len(video_reader)
+        zero_rank_print(f"Video length {video_length}", LogType.debug)
 
         if video_length == 0:
             raise ValueError("Empty video file")
@@ -53,6 +54,8 @@ def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_im
         frames = video_reader.get_batch(batch_index)
         # frames = frames.float() / 255.0  # Normalize the pixel values if they're in the 0-255 range
 
+        zero_rank_print(f"Video frames read {batch_index}", LogType.debug)
+
         # Initialize the CLIPImageProcessor with the appropriate configuration
         clip_processor = CLIPImageProcessor(
             do_resize=True,
@@ -67,6 +70,8 @@ def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_im
             images=frames,
             return_tensors='pt'
         )['pixel_values']
+
+        zero_rank_print(f"Video frames processed", LogType.debug)
 
         if is_image:
             pixel_values = processed_frames[0]  # Just use the first frame

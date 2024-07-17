@@ -205,7 +205,7 @@ def train_mp(
             logger.debug(f"Pixel values {pixel_values.shape}")
 
             # Data batch sanity check
-            if epoch == first_epoch and step < 5:
+            if epoch == first_epoch and step < 2:
                 sanity_pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
                 for idx, pixel_value in enumerate(sanity_pixel_values):
                     pixel_value = pixel_value[None, ...]
