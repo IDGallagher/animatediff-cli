@@ -6,9 +6,6 @@ from diffusers import DiffusionPipeline
 from diffusers.configuration_utils import ConfigMixin
 from diffusers.models import ModelMixin
 from einops import rearrange
-from positional_encodings.torch_encodings import (PositionalEncoding1D,
-                                                  PositionalEncoding2D,
-                                                  PositionalEncoding3D, Summer)
 from torch import nn
 
 logger = logging.getLogger(__name__)
@@ -20,12 +17,13 @@ class MotionPredictor(ModelMixin, ConfigMixin):
 
         # Initialize layers
         self.input_projection = nn.Linear(token_dim, hidden_dim)  # Project token to hidden dimension
+        norm_layer = nn.LayerNorm(hidden_dim)
         self.transformer = nn.TransformerDecoder(
             nn.TransformerDecoderLayer(d_model=hidden_dim, nhead=num_heads),
-            num_layers=num_layers
+            num_layers=num_layers,
+            norm=norm_layer
         )
         self.output_projection = nn.Linear(hidden_dim, token_dim)  # Project back to token dimension
-        self.pos_encoder = PositionalEncoding2D(hidden_dim)
 
     def create_attention_mask(self, total_frames, num_tokens):
         mask = torch.full((total_frames * num_tokens, total_frames * num_tokens), float('-inf'), dtype=self.dtype, device=self.device)
@@ -59,15 +57,6 @@ class MotionPredictor(ModelMixin, ConfigMixin):
 
         # Apply input projection
         projected_tokens = self.input_projection(interpolated_tokens)
-
-        # Add 2D positional encoding
-        # Reshape to [batch_size * total_frames, num_tokens, hidden_dim] for PositionalEncoding2D
-        projected_tokens_reshaped = projected_tokens.view(-1, num_tokens, projected_tokens.shape[-1])
-        pos_encoding = self.pos_encoder(projected_tokens_reshaped.permute(0, 2, 1).unsqueeze(2))
-        pos_encoding = pos_encoding.squeeze(2).permute(0, 2, 1)
-        # Reshape back to [batch_size, total_frames, num_tokens, hidden_dim]
-        pos_encoding = pos_encoding.view(batch_size, total_frames, num_tokens, -1)
-        projected_tokens = projected_tokens + pos_encoding
 
         # Reshape to match the transformer expected input [seq_len, batch_size, hidden_dim]
         projected_tokens = rearrange(projected_tokens, 'b f t d -> (f t) b d')

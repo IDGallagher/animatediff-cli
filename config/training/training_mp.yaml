@@ -25,8 +25,8 @@ validation_data:
 
 learning_rate:    1.e-4
 train_batch_size: 1
-gradient_accumulation_steps: 3
-num_workers: 10
+gradient_accumulation_steps: 16
+num_workers: 8
 
 epoch_size:           1000
 num_epochs:           1000

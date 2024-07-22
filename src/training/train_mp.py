@@ -118,6 +118,14 @@ def train_mp(
     # Load models and move to GPU
     ip_adapter = load_ip_adapter(sd_model_path, is_plus=True, device=device_id)
     model = MotionPredictor().to(device=device_id)
+
+    # def init_weights(m):
+    #     if isinstance(m, nn.Linear):
+    #         torch.nn.init.kaiming_uniform_(m.weight)
+    #         if m.bias is not None:
+    #             torch.nn.init.constant_(m.bias, 0)
+    # model.apply(init_weights)
+
     # Freeze IPA
     # ip_adapter.requires_grad_(False)
 
