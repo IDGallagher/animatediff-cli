@@ -1,0 +1,26 @@
+{
+  "name": "IPATest",
+  "base": "",
+  "path": "C:/dev/cog-animatediff-cli/data/models/realisticVisionV60B1_v51VAE.safetensors",
+  "motion_module": "C:/dev/VideoTraining/models/Motion_Module/mm_sd_v15_v2.ckpt",
+  "compile": false,
+  "seed": [
+    1236
+  ],
+  "input_images": {
+    "0":"data/boxer_000.png",
+    "15":"data/boxer_015.png"
+  },
+  "interpolate_images":true,
+  "video_fps":  6,
+  "scheduler": "ddim",
+  "steps": 25,
+  "guidance_scale": 7.5,
+  "clip_skip": 1,
+  "prompts": [
+    "A female boxer sparring in a gym"
+  ],
+  "n_prompts": [
+    "semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, text, close up, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck"
+  ]
+}

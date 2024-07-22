@@ -190,7 +190,7 @@ def run_inference(
         image_embed_frames = range(pos_image_embeds.shape[0])
         logger.debug(f"Created image embeds {pos_image_embeds.shape} {neg_image_embeds.shape}")
     elif input_images is not None:
-        pipeline.load_ip_adapter(scale=0.5)
+        pipeline.load_ip_adapter(scale=0.8)
         pil_images = []
 
         # Load and convert each image file to a PIL Image
@@ -206,18 +206,18 @@ def run_inference(
         if interpolate_images:
             logger.debug(f"Interpolating to create {duration} image embeds {pipeline.device}")
             with torch.inference_mode(True):
-                motion_predictor = MotionPredictor(total_frames=duration).to(pipeline.device, dtype=torch.float16)
+                motion_predictor = MotionPredictor().to(pipeline.device, dtype=torch.float16)
 
-                checkpoint = torch.load('outputs/training_mp-2024-07-14T13-00-47/checkpoints/motion_predictor_epoch_0.pth')
+                checkpoint = torch.load("outputs/training_mp-2024-07-21T03-46-53/checkpoints/motion_predictor_epoch_38.pth")
                 # Load the state dictionary into the model
                 motion_predictor.load_state_dict(checkpoint)
                 logger.debug(f"pos_image_embeds {pos_image_embeds.shape}")
                 pos_image_embeds = pos_image_embeds.unsqueeze(0)  # Add batch dimension, shape: (1, sequence_length, feature_dim)
-                pos_image_embeds = motion_predictor(pos_image_embeds[:, 0], pos_image_embeds[:, -1]).squeeze(0)
+                pos_image_embeds = motion_predictor(pos_image_embeds[:, 0], pos_image_embeds[:, -1], total_frames=duration).squeeze(0)
                 # pos_image_embeds = motion_predictor.interpolate_tokens(pos_image_embeds[:, 0, :], pos_image_embeds[:, -1, :]).squeeze(0)
                 neg_image_embeds = neg_image_embeds.unsqueeze(0)
                 # neg_image_embeds = motion_predictor(neg_image_embeds[:, 0], neg_image_embeds[:, -1]).squeeze(0)
-                neg_image_embeds = motion_predictor.interpolate_tokens(neg_image_embeds[:, 0], neg_image_embeds[:, -1]).squeeze(0)
+                neg_image_embeds = motion_predictor.interpolate_tokens(neg_image_embeds[:, 0], neg_image_embeds[:, -1], total_frames=duration).squeeze(0)
                 image_embed_frames = range(pos_image_embeds.shape[0])
                 logger.debug(f"pos embeds shape {pos_image_embeds.shape}")
                 logger.debug(f"neg embeds shape {neg_image_embeds.shape}")

@@ -21,6 +21,7 @@ import webdataset as wds
 from training.utils import LogType, zero_rank_partial
 
 decord.bridge.set_bridge('torch')
+video_reader = decord.VideoReader("data/boxer.mp4", ctx=cpu(0))
 
 logger = logging.getLogger(__name__)
 zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
@@ -31,7 +32,9 @@ def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_im
         caption = sample["txt"]
         zero_rank_print(f"Loading {caption}", LogType.debug)
 
-        video_reader = decord.VideoReader(io.BytesIO(video_path), ctx=cpu(0))
+        # video_reader = decord.VideoReader(io.BytesIO(video_path), ctx=cpu(0))
+        global video_reader
+
         video_length = len(video_reader)
         zero_rank_print(f"Video length {video_length}", LogType.debug)
 
@@ -47,6 +50,7 @@ def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_im
             total_duration = (sample_n_frames - 1) / target_fps
             max_start_frame = max(0, video_length - int(total_duration * original_fps) - 1)
             start_frame = random.randint(0, max_start_frame)
+            # start_frame = 0
             batch_index = [round(start_frame + i * frame_interval) for i in range(sample_n_frames)]
             batch_index = [min(i, video_length - 1) for i in batch_index]
 
@@ -78,7 +82,7 @@ def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_im
         else:
             pixel_values = processed_frames
 
-        del video_reader
+        # del video_reader
 
     except KeyError as e:
         print(f"Missing key in sample: {e}")

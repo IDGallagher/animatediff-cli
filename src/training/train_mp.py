@@ -117,7 +117,7 @@ def train_mp(
 
     # Load models and move to GPU
     ip_adapter = load_ip_adapter(sd_model_path, is_plus=True, device=device_id)
-    model = MotionPredictor(total_frames=train_data.sample_n_frames).to(device=device_id)
+    model = MotionPredictor().to(device=device_id)
     # Freeze IPA
     # ip_adapter.requires_grad_(False)
 
@@ -193,6 +193,15 @@ def train_mp(
     # Support mixed-precision training
     scaler = torch.cuda.amp.GradScaler() if mixed_precision_training else None
 
+    # DUMMY
+    # batches = []
+    # for step, batch in enumerate(train_dataloader):
+        # zero_rank_print(f"step {step}")
+        # batches.append(batch)
+        # break
+    # batches *= epoch_size
+    # End DUMMY
+
     # Training loop
     model.train()
     for epoch in range(first_epoch, num_epochs):
@@ -200,6 +209,10 @@ def train_mp(
         epoch_loss = 0
         progress_bar = tqdm(enumerate(train_dataloader), total=epoch_size, desc=f"Epoch {epoch + 1}/{num_epochs}", leave=False)
         for step, batch in progress_bar:
+
+        # DUMMY
+        # for step, batch in enumerate(batches):
+        # End DUMMY
 
             pixel_values = batch[0].to(device_id)
             logger.debug(f"Pixel values {pixel_values.shape}")
@@ -217,9 +230,9 @@ def train_mp(
             logger.debug(f"Ground truth shape {ground_truth.shape}")
 
             # Forward pass
-            zero_rank_print(f"Forward Pass with Mixed Precision: {mixed_precision_training}", LogType.debug)
+            zero_rank_print(f"Forward Pass with Mixed Precision: {mixed_precision_training} Total frames: {ground_truth.shape[1]}", LogType.debug)
             with torch.cuda.amp.autocast(enabled=mixed_precision_training):
-                outputs = model(ground_truth[:, 0], ground_truth[:, -1])
+                outputs = model(ground_truth[:, 0], ground_truth[:, -1], total_frames=ground_truth.shape[1])
                 loss = criterion(outputs, ground_truth) / gradient_accumulation_steps
 
             # Backpropagate loss, accumulate gradients
@@ -245,6 +258,7 @@ def train_mp(
                 # Log to WandB
                 if is_main_process and (not is_debug) and use_wandb:
                     wandb.log({"train_loss": loss.item() * gradient_accumulation_steps, "epoch": epoch})
+                    zero_rank_print(f"train_loss {loss.item() * gradient_accumulation_steps} epoch {epoch}", LogType.debug)
                 epoch_loss += loss.item() * gradient_accumulation_steps
 
             # Update the progress bar
