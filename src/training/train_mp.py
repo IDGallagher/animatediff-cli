@@ -18,6 +18,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import Dataset
 from torchvision.transforms.functional import to_pil_image
 from tqdm import tqdm
+from transformers import CLIPImageProcessor
 
 import wandb
 from animatediff.utils.util import save_frames, save_video
@@ -201,6 +202,13 @@ def train_mp(
     # Support mixed-precision training
     scaler = torch.cuda.amp.GradScaler() if mixed_precision_training else None
 
+    clip_image_processor = CLIPImageProcessor(
+            do_resize=False,
+            do_center_crop=False,
+            do_rescale=True,
+            do_normalize=True
+        )
+
     # DUMMY
     # batches = []
     # for step, batch in enumerate(train_dataloader):
@@ -224,6 +232,8 @@ def train_mp(
 
             pixel_values = batch[0].to(device_id)
             logger.debug(f"Pixel values {pixel_values.shape}")
+
+            pixel_values = clip_image_processor(images=pixel_values, return_tensors="pt").pixel_values
 
             # Data batch sanity check
             if epoch == first_epoch and step < 2:

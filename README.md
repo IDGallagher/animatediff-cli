@@ -7,6 +7,57 @@ python ./src/animatediff/__main__.py generate -c config/prompts/IPAImageTest.jso
 torchrun --nnodes=1 --nproc_per_node=1 ./src/animatediff/__main__.py train motionpredictor -w -c config/training/training_mp.yaml
 python .\src\animatediff\__main__.py generate -c config\prompts\IPAImageTestCow.json
 
+python ./src/animatediff/__main__.py train motionpredictor -w -c config/training/training_mp.yaml
+
+
+
+
+apt update
+apt upgrade
+apt install sudo
+apt install ffmpeg
+apt install iftop
+apt-get install git-lfs
+apt install unzip
+
+git clone https://github.com/neggles/animatediff-cli
+cd animatediff-cli
+python -m venv .venv
+source .venv/bin/activate
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+pip install -e '.[dev]'
+
+# official PPA comes with ffmpeg 2.8, which lacks tons of features, we use ffmpeg 4.0 here
+sudo add-apt-repository ppa:jonathonf/ffmpeg-4 # for ubuntu20.04 official PPA is already version 4.2, you may skip this step
+sudo apt-get update
+sudo apt-get install -y build-essential python3-dev python3-setuptools make cmake
+sudo apt-get install -y ffmpeg libavcodec-dev libavfilter-dev libavformat-dev libavutil-dev
+# note: make sure you have cmake 3.8 or later, you can install from cmake official website if it's too old
+
+cd /workspace
+git clone --recursive https://github.com/dmlc/decord
+
+ln -s /usr/lib/x86_64-linux-gnu/libnvcuvid.so.1 /usr/local/cuda/libnvcuvid.so
+cd decord
+mkdir build && cd build
+cmake .. -DUSE_CUDA=ON -DCMAKE_BUILD_TYPE=Release 
+make
+cd ../python
+pip install wheel
+pip install .
+
+# Copy aws.zip to ~ and unzip
+# Copy secrets.dat to ~
+pip install wandb; source ~/secrets.dat; wandb login $WANDB_API_KEY;
+
+cd /workspace/animatediff-cli/data/models/sd
+git clone https://huggingface.co/runwayml/stable-diffusion-v1-5
+cd /workspace/animatediff-cli/data/models/
+git clone https://huggingface.co/laion/CLIP-ViT-H-14-laion2B-s32B-b79K
+git clone https://huggingface.co/h94/IP-Adapter
+
+
+
 
 
 # animatediff

@@ -1,3 +1,4 @@
+import gc
 import io
 import logging
 import random
@@ -8,11 +9,23 @@ from typing import Callable
 import decord
 import numpy as np
 import torch
+import torchaudio
 import torchvision.transforms as transforms
 from decord import cpu, gpu
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
+from torchaudio.io import StreamReader
+from torchaudio.utils import ffmpeg_utils
 from transformers import CLIPImageProcessor
+
+print("FFmpeg Library versions:")
+for k, ver in ffmpeg_utils.get_versions().items():
+    print(f"  {k}:\t{'.'.join(str(v) for v in ver)}")
+
+print("Available NVDEC Decoders:")
+for k in ffmpeg_utils.get_video_decoders().keys():
+    if "cuvid" in k:
+        print(f" - {k}")
 
 sys.path.append("./webdataset/")
 import wids as wids  # type: ignore
@@ -27,69 +40,74 @@ logger = logging.getLogger(__name__)
 zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
 
 def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_image=False, **kwargs):
+    stream_reader = None
+    frames = None
     try:
         video_path = sample["mp4"]
         caption = sample["txt"]
         zero_rank_print(f"Loading {caption}", LogType.debug)
 
-        video_reader = decord.VideoReader(io.BytesIO(video_path), ctx=cpu(0))
-        # global video_reader
+        if is_image:
+            sample_n_frames = 1
 
-        video_length = len(video_reader)
-        zero_rank_print(f"Video length {video_length}", LogType.debug)
+        stream_reader = torchaudio.io.StreamReader(io.BytesIO(video_path))
+        stream_reader.add_video_stream(
+            frames_per_chunk=sample_n_frames,
+            filter_desc=f"fps={target_fps},scale={sample_size}:{sample_size}:force_original_aspect_ratio=increase,crop={sample_size}:{sample_size},format=pix_fmts=rgb24"
+        )
+
+        metadata = stream_reader.get_src_stream_info(0)
+        original_fps = metadata.frame_rate
+        video_length = metadata.num_frames
+        duration = video_length / original_fps  # Duration in seconds
+        zero_rank_print(f"Video length {video_length} at {original_fps} fps", LogType.debug)
 
         if video_length == 0:
             raise ValueError("Empty video file")
 
-        original_fps = video_reader.get_avg_fps()
+        target_video_length = int(duration * target_fps)
+
+        max_start_frame = max(0, target_video_length - sample_n_frames)
+        start_frame = random.randint(0, max_start_frame)
+
+        # Convert start_frame to seconds
+        start_time = start_frame / target_fps
+
+        stream_reader.seek(start_time)
+        stream_reader.fill_buffer()
+        (frames,) = stream_reader.pop_chunks()
+
+        # frames = frames[0]
+        zero_rank_print(f"frames {frames.shape} {frames.dtype} {frames.device}", LogType.debug)
+
+        zero_rank_print(f"Video frames read and processed, start frame {start_frame} start time {start_time:.2f}s", LogType.debug)
 
         if is_image:
-            batch_index = [random.randint(0, video_length - 1)]
+            pixel_values = frames[0]
         else:
-            frame_interval = original_fps / target_fps
-            total_duration = (sample_n_frames - 1) / target_fps
-            max_start_frame = max(0, video_length - int(total_duration * original_fps) - 1)
-            start_frame = random.randint(0, max_start_frame)
-            # start_frame = 0
-            batch_index = [round(start_frame + i * frame_interval) for i in range(sample_n_frames)]
-            batch_index = [min(i, video_length - 1) for i in batch_index]
+            pixel_values = frames
 
-        # Assuming get_batch() returns a PyTorch tensor
-        frames = video_reader.get_batch(batch_index)
-        # frames = frames.float() / 255.0  # Normalize the pixel values if they're in the 0-255 range
-
-        zero_rank_print(f"Video frames read {batch_index}", LogType.debug)
-
-        # Initialize the CLIPImageProcessor with the appropriate configuration
-        clip_processor = CLIPImageProcessor(
-            do_resize=True,
-            size={"shortest_edge": sample_size},
-            do_center_crop=True,
-            crop_size={"height": sample_size, "width": sample_size},
-            do_normalize=True
-        )
-
-        # Process the batch of frames directly
-        processed_frames = clip_processor.preprocess(
-            images=frames,
-            return_tensors='pt'
-        )['pixel_values']
-
-        zero_rank_print(f"Video frames processed", LogType.debug)
-
-        if is_image:
-            pixel_values = processed_frames[0]  # Just use the first frame
-        else:
-            pixel_values = processed_frames
-
-        del video_reader
+        # Explicitly delete large objects
+        del video_path
 
     except KeyError as e:
-        print(f"Missing key in sample: {e}")
+        zero_rank_print(f"Missing key in sample: {e}", LogType.error)
         return None
     except (FileNotFoundError, RuntimeError, ValueError) as e:
-        print(f"Error processing sample: {e}")
+        zero_rank_print(f"Error processing sample: {e}", LogType.error)
         return None
+    finally:
+        # Ensure we close and delete the StreamReader
+        if stream_reader is not None:
+            stream_reader.remove_stream(0)
+            del stream_reader
+
+        # Delete the frames list if it exists
+        if frames is not None:
+            del frames
+
+        # Force garbage collection
+        gc.collect()
 
     return pixel_values, caption
 
