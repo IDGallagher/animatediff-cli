@@ -32,15 +32,15 @@ zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, log
 
 
 def load_ip_adapter(sd_model_path:str, is_plus:bool=True, scale:float=1.0, device='cpu'):
-    img_enc_path = "data/models/ip_adapter/laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
+    img_enc_path = "data/models/CLIP-ViT-H-14-laion2B-s32B-b79K"
 
     # We're just using this pipeline to get unet parameters. It can be safely deleted once we're intialized
     temp_pipeline = StableDiffusionPipeline.from_pretrained(sd_model_path)
 
     if is_plus:
-        ip_adapter = IPAdapterPlus(temp_pipeline, img_enc_path, "data/models/ip_adapter/ip-adapter-plus_sd15.bin", device, 16)
+        ip_adapter = IPAdapterPlus(temp_pipeline, img_enc_path, "data/models/IP-Adapter/models/ip-adapter-plus_sd15.bin", device, 16)
     else:
-        ip_adapter = IPAdapter(temp_pipeline, img_enc_path, "data/models/ip_adapter/ip-adapter_sd15.bin", device, 4)
+        ip_adapter = IPAdapter(temp_pipeline, img_enc_path, "data/models/IP-Adapter/models/ip-adapter_sd15.bin", device, 4)
     ip_adapter.set_scale(scale)
 
     # Delete pipeline and return

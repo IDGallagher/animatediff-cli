@@ -161,6 +161,7 @@ def run_inference(
     video_tensor: Optional[torch.FloatTensor] = None,
     input_images: Optional[dict[int, str]] = None,
     interpolate_images: bool = False,
+    motion_predictor_path: str = None,
 ):
     if prompt is None and prompt_map is None:
         raise ValueError("prompt and prompt_map cannot both be None, one must be provided")
@@ -208,7 +209,7 @@ def run_inference(
             with torch.inference_mode(True):
                 motion_predictor = MotionPredictor().to(pipeline.device, dtype=torch.float16)
 
-                checkpoint = torch.load("outputs/batchsize-16-training_mp-2024-07-22T12-49-27/checkpoints/motion_predictor_epoch_9.pth")
+                checkpoint = torch.load(motion_predictor_path)
                 # Load the state dictionary into the model
                 motion_predictor.load_state_dict(checkpoint)
                 logger.debug(f"pos_image_embeds {pos_image_embeds.shape}")

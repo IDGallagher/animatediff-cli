@@ -458,7 +458,8 @@ def generate(
                 clip_skip=model_config.clip_skip,
                 video_tensor=video_tensor,
                 input_images=model_config.input_images,
-                interpolate_images=model_config.interpolate_images
+                interpolate_images=model_config.interpolate_images,
+                motion_predictor_path=model_config.motion_predictor
             )
             outputs.append(output)
             torch.cuda.empty_cache()
