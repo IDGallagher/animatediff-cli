@@ -1,5 +1,5 @@
 output_dir: "outputs"
-sd_model_path: "C:/dev/VideoTraining/models/StableDiffusion"
+sd_model_path: "data/models/sd/stable-diffusion-v1-5"
 
 train_data:
   # shards:          "s3://webvid-10m/val-shards.json"
