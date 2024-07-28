@@ -3,6 +3,7 @@ import inspect
 import logging
 import math
 import os
+import time
 from functools import partial
 from typing import Callable, Dict, List, Tuple
 
@@ -29,8 +30,8 @@ from training.dataset_mp import make_dataloader
 from .utils import LogType, zero_rank_partial
 
 logger = logging.getLogger(__name__)
+logger.disabled = True
 zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
-
 
 def load_ip_adapter(sd_model_path:str, is_plus:bool=True, scale:float=1.0, device='cpu'):
     img_enc_path = "data/models/CLIP-ViT-H-14-laion2B-s32B-b79K"
@@ -96,6 +97,9 @@ def train_mp(
 
     seed = global_seed + global_rank
     torch.manual_seed(seed)
+
+    sample_start_time = time.time()
+    sample_end_time = time.time()
 
     # Logging folder
     folder_name = "debug" if is_debug else name + datetime.datetime.now().strftime("-%Y-%m-%dT%H-%M-%S")
@@ -218,22 +222,30 @@ def train_mp(
     # batches *= epoch_size
     # End DUMMY
 
+    # Normalize and rescale images
+    mean = torch.tensor([0.48145466, 0.4578275, 0.40821073]).view(1, 1, 3, 1, 1).to(device_id)
+    std = torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(1, 1, 3, 1, 1).to(device_id)
+
     # Training loop
     model.train()
     for epoch in range(first_epoch, num_epochs):
-
         epoch_loss = 0
         progress_bar = tqdm(enumerate(train_dataloader), total=epoch_size, desc=f"Epoch {epoch + 1}/{num_epochs}", leave=False)
         for step, batch in progress_bar:
-
+            sample_start_time = time.time()
+            data_wait_time = sample_start_time - sample_end_time
         # DUMMY
         # for step, batch in enumerate(batches):
         # End DUMMY
 
             pixel_values = batch[0].to(device_id)
-            logger.debug(f"Pixel values {pixel_values.shape}")
+            pixel_values = (pixel_values/255.0 - mean) / std
+            logger.debug(f"Pixel values {pixel_values.shape} {pixel_values.device}")
 
-            pixel_values = clip_image_processor(images=pixel_values, return_tensors="pt").pixel_values
+            # frames_per_batch = pixel_values.shape[1]
+            # pixel_values = rearrange(pixel_values, "b f c h w -> (b f) c h w")
+            # pixel_values = clip_image_processor(images=pixel_values, return_tensors="pt").pixel_values
+            # pixel_values = rearrange(pixel_values, "(b f) c h w -> b f c h w", f=frames_per_batch)
 
             # Data batch sanity check
             if epoch == first_epoch and step < 2:
@@ -273,10 +285,17 @@ def train_mp(
 
                 lr_scheduler.step()  # Update learning rate
 
+                sample_end_time = time.time()
+                sample_time = sample_end_time - sample_start_time
                 # Log to WandB
-                if is_main_process and (not is_debug) and use_wandb:
-                    wandb.log({"train_loss": loss.item() * gradient_accumulation_steps, "epoch": epoch})
-                    zero_rank_print(f"train_loss {loss.item() * gradient_accumulation_steps} epoch {epoch}", LogType.debug)
+                if is_main_process and step > 1 and (not is_debug) and use_wandb:
+                    wandb.log({
+                        "train_loss": loss.item() * gradient_accumulation_steps,
+                        "epoch": epoch,
+                        "sample_time": sample_time,
+                        "data_wait_time": data_wait_time
+                    })
+                    zero_rank_print(f"train_loss {loss.item() * gradient_accumulation_steps} epoch {epoch} sample_time {sample_time} data_wait_time {data_wait_time}", LogType.debug)
                 epoch_loss += loss.item() * gradient_accumulation_steps
 
             # Update the progress bar

@@ -37,6 +37,7 @@ decord.bridge.set_bridge('torch')
 # video_reader = decord.VideoReader("/workspace/animatediff-cli/data/boxer.mp4", ctx=cpu(0))
 
 logger = logging.getLogger(__name__)
+logger.disabled = False
 zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
 
 def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_image=False, **kwargs):
@@ -53,7 +54,8 @@ def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_im
         stream_reader = torchaudio.io.StreamReader(io.BytesIO(video_path))
         stream_reader.add_video_stream(
             frames_per_chunk=sample_n_frames,
-            filter_desc=f"fps={target_fps},scale={sample_size}:{sample_size}:force_original_aspect_ratio=increase,crop={sample_size}:{sample_size},format=pix_fmts=rgb24"
+            filter_desc=f"fps={target_fps},scale={sample_size}:{sample_size}:force_original_aspect_ratio=increase,crop={sample_size}:{sample_size},format=pix_fmts=rgb24",
+            hw_accel="cuda"
         )
 
         metadata = stream_reader.get_src_stream_info(0)

@@ -343,9 +343,9 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
             img_enc_path = "data/models/CLIP-ViT-H-14-laion2B-s32B-b79K"
 
             if is_plus:
-                self.ip_adapter = IPAdapterPlus(self, img_enc_path, "data/models/ip_adapter_plus_sd15/ip-adapter-plus_sd15.safetensors", self.device, 16)
+                self.ip_adapter = IPAdapterPlus(self, img_enc_path, "data/models/IP-Adapter/models/ip-adapter-plus_sd15.bin", self.device, 16)
             else:
-                self.ip_adapter = IPAdapter(self, img_enc_path, "data/models/ip_adapter_sd15/ip-adapter_sd15.safetensors", self.device, 4)
+                self.ip_adapter = IPAdapter(self, img_enc_path, "data/models/IP-Adapter/models/ip-adapter_sd15.bin", self.device, 4)
             self.ip_adapter.set_scale(scale)
 
     def unload_ip_adapater(self):

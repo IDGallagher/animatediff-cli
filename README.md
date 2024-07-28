@@ -7,6 +7,7 @@ python ./src/animatediff/__main__.py generate -c config/prompts/IPAImageTest.jso
 torchrun --nnodes=1 --nproc_per_node=1 ./src/animatediff/__main__.py train motionpredictor -w -c config/training/training_mp.yaml
 python .\src\animatediff\__main__.py generate -c config\prompts\IPAImageTestCow.json
 
+python ./src/animatediff/__main__.py generate -c config/prompts/IPAImageTestCow.json
 python ./src/animatediff/__main__.py train motionpredictor -w -c config/training/training_mp.yaml
 
 
@@ -19,6 +20,10 @@ apt install ffmpeg
 apt install iftop
 apt-get install git-lfs
 apt install unzip
+
+# Copy aws.zip to ~ and unzip
+# Copy secrets.dat to ~
+pip install wandb; source ~/secrets.dat; wandb login $WANDB_API_KEY;
 
 git clone https://github.com/neggles/animatediff-cli
 cd animatediff-cli
@@ -46,9 +51,7 @@ cd ../python
 pip install wheel
 pip install .
 
-# Copy aws.zip to ~ and unzip
-# Copy secrets.dat to ~
-pip install wandb; source ~/secrets.dat; wandb login $WANDB_API_KEY;
+
 
 cd /workspace/animatediff-cli/data/models/sd
 git clone https://huggingface.co/runwayml/stable-diffusion-v1-5

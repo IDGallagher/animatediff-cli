@@ -43,6 +43,7 @@ dependencies = [
   "ffmpeg-python",
   "wandb",
   "braceexpand",
+  "x-transformers",
 ]
 
 [project.optional-dependencies]
