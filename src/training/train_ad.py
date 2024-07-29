@@ -7,6 +7,7 @@ import os
 import random
 import subprocess
 import sys
+import time
 from enum import Enum
 from functools import partial
 from typing import Callable, Dict, Optional, Tuple
@@ -24,7 +25,7 @@ from omegaconf import OmegaConf
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.swa_utils import AveragedModel
 from torch.utils.data.distributed import DistributedSampler
-from tqdm.auto import tqdm
+from tqdm import tqdm
 from transformers import CLIPImageProcessor, CLIPTokenizer
 
 import training
@@ -34,8 +35,9 @@ from animatediff.models.unet import UNet3DConditionModel
 from animatediff.pipelines.animation import AnimationPipeline
 from animatediff.schedulers import get_scheduler
 from animatediff.utils.device import get_memory_format, get_model_dtypes
-from animatediff.utils.util import relative_path, save_frames, save_video
-from training.dataset_ad import make_dataloader, make_dataset
+from animatediff.utils.util import (relative_path, save_frames, save_images,
+                                    save_video)
+from training.dataset_ad import make_dataloader
 
 from .utils import LogType, zero_rank_partial
 
@@ -55,6 +57,9 @@ def train_ad(
     validation_data: Dict,
     device_id: int,
 
+    epoch_size:int = 1000,
+    num_epochs:int = 1,
+
     cfg_random_null_text: bool = True,
     cfg_random_null_text_ratio: float = 0.1,
 
@@ -63,8 +68,6 @@ def train_ad(
     ema_decay: float = 0.9999,
     noise_scheduler_kwargs = None,
 
-    max_train_epoch: int = -1,
-    max_train_steps: int = 100,
     validation_steps: int = 100,
     validation_steps_tuple: Tuple = (-1,),
 
@@ -100,24 +103,30 @@ def train_ad(
     seed = global_seed + global_rank
     torch.manual_seed(seed)
 
+    sample_start_time = time.time()
+    sample_end_time = time.time()
+
     # Logging folder
-    folder_name = "debug" if is_debug else name + datetime.datetime.now().strftime("-%Y-%m-%dT%H-%M-%S")
-    output_dir = os.path.join(output_dir, folder_name)
-    if is_debug and os.path.exists(output_dir):
-        os.system(f"rm -rf {output_dir}")
+    run_name = name + datetime.datetime.now().strftime("-%Y-%m-%dT%H-%M-%S")
+    folder_name = "debug" if is_debug else run_name
+    run_dir = os.path.join(output_dir, folder_name)
+    if is_debug and os.path.exists(run_dir):
+        os.system(f"rm -rf {run_dir}")
 
     *_, config = inspect.getargvalues(inspect.currentframe())
 
     if is_main_process and (not is_debug) and use_wandb:
         run = wandb.init(project="animatediff", name=folder_name, config=config)
 
+    checkpoint_dir = os.path.join(output_dir, f"checkpoints/{run_name}/")
+
     # Handle the output folder creation
     if is_main_process:
-        os.makedirs(output_dir, exist_ok=True)
-        os.makedirs(f"{output_dir}/samples", exist_ok=True)
-        os.makedirs(f"{output_dir}/sanity_check", exist_ok=True)
-        os.makedirs(f"{output_dir}/checkpoints", exist_ok=True)
-        OmegaConf.save(config, os.path.join(output_dir, 'config.yaml'))
+        os.makedirs(run_dir, exist_ok=True)
+        os.makedirs(f"{run_dir}/samples", exist_ok=True)
+        os.makedirs(f"{run_dir}/sanity_check", exist_ok=True)
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        OmegaConf.save(config, os.path.join(run_dir, 'config.yaml'))
 
     # set up scheduler
     noise_scheduler = get_scheduler("ddim", OmegaConf.to_container(noise_scheduler_kwargs))
@@ -132,7 +141,7 @@ def train_ad(
     if not image_finetune:
         unet = UNet3DConditionModel.from_pretrained_2d(
             sd_model_path, subfolder="unet",
-            motion_module_path="C:/dev/animatediff-cli/data/models/motion-module/mm_sd_v15_v2.ckpt",
+            motion_module_path="data/models/motion-module/mm_sd_v15_v2.safetensors",
             unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs)
         )
     else:
@@ -163,14 +172,6 @@ def train_ad(
                 break
 
     trainable_params = list(filter(lambda p: p.requires_grad, unet.parameters()))
-    optimizer = torch.optim.AdamW(
-        trainable_params,
-        lr=learning_rate,
-        betas=(adam_beta1, adam_beta2),
-        weight_decay=adam_weight_decay,
-        eps=adam_epsilon,
-    )
-
     zero_rank_print(f"trainable params number: {len(trainable_params)}")
     zero_rank_print(f"trainable params scale: {sum(p.numel() for p in trainable_params) / 1e6:.3f} M")
 
@@ -184,6 +185,15 @@ def train_ad(
         logger.info("Enabling gradient checkpointing")
         unet.enable_gradient_checkpointing()
 
+    # Optimizer and loss
+    optimizer = torch.optim.AdamW(
+        trainable_params,
+        lr=learning_rate,
+        betas=(adam_beta1, adam_beta2),
+        weight_decay=adam_weight_decay,
+        eps=adam_epsilon,
+    )
+
     # Move models to GPU
 
     # unet_dtype, tenc_dtype, vae_dtype = get_model_dtypes(device_id, force_half)
@@ -196,38 +206,16 @@ def train_ad(
     vae = vae.to(device=device_id)
 
     # Get the training dataset
-    train_dataset = make_dataset(**train_data)
-    train_dataloader = make_dataloader(train_dataset, batch_size=train_batch_size)
-
-    # # Get the training dataset
-    # train_dataset = WebVid10M(**train_data, is_image=image_finetune)
-    # distributed_sampler = DistributedSampler(
-    #     train_dataset,
-    #     num_replicas=num_processes,
-    #     rank=global_rank,
-    #     shuffle=True,
-    #     seed=global_seed,
-    # )
-
-    # # DataLoaders creation:
-    # train_dataloader = torch.utils.data.DataLoader(
-    #     train_dataset,
-    #     batch_size=train_batch_size,
-    #     shuffle=False,
-    #     sampler=distributed_sampler,
-    #     num_workers=num_workers,
-    #     pin_memory=True,
-    #     drop_last=True,
-    # )
+    train_dataloader = make_dataloader(**train_data, batch_size=train_batch_size, num_workers=num_workers)
 
     # Get the training iteration
-    if max_train_steps == -1:
-        assert max_train_epoch != -1
-        max_train_steps = max_train_epoch * len(train_dataset)
+    # if max_train_steps == -1:
+    #     assert max_train_epoch != -1
+    #     max_train_steps = max_train_epoch * len(train_dataset)
 
-    if checkpointing_steps == -1:
-        assert checkpointing_epochs != -1
-        checkpointing_steps = checkpointing_epochs * len(train_dataset)
+    # if checkpointing_steps == -1:
+    #     assert checkpointing_epochs != -1
+    #     checkpointing_steps = checkpointing_epochs * len(train_dataset)
 
     if scale_lr:
         learning_rate = (learning_rate * gradient_accumulation_steps * train_batch_size * num_processes)
@@ -237,7 +225,7 @@ def train_ad(
         lr_scheduler,
         optimizer=optimizer,
         num_warmup_steps=lr_warmup_steps * gradient_accumulation_steps,
-        num_training_steps=max_train_steps * gradient_accumulation_steps,
+        num_training_steps=epoch_size * num_epochs * gradient_accumulation_steps / train_batch_size,
     )
 
     # DDP wrapper
@@ -245,54 +233,63 @@ def train_ad(
     # unet_single = torch.compile(unet_single)
     unet = DDP(unet_single, device_ids=[device_id], output_device=device_id)
 
-    # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(len(train_dataset) / gradient_accumulation_steps)
-    # Afterwards we recalculate our number of training epochs
-    num_train_epochs = math.ceil(max_train_steps / num_update_steps_per_epoch)
-
     # Train!
     total_batch_size = train_batch_size * num_processes * gradient_accumulation_steps
 
     if is_main_process:
         logging.info("***** Running training *****")
-        logging.info(f"  Num examples = {len(train_dataset)}")
-        logging.info(f"  Num Epochs = {num_train_epochs}")
+        logging.info(f"  Num examples = {epoch_size}")
+        logging.info(f"  Num Epochs = {num_epochs}")
         logging.info(f"  Instantaneous batch size per device = {train_batch_size}")
         logging.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
         logging.info(f"  Gradient Accumulation steps = {gradient_accumulation_steps}")
-        logging.info(f"  Total optimization steps = {max_train_steps}")
+        logging.info(f"  Total optimization steps = {epoch_size * num_epochs * gradient_accumulation_steps / train_batch_size}")
     global_step = 0
     first_epoch = 0
 
     # Only show the progress bar once on each machine.
-    progress_bar = tqdm(range(global_step, max_train_steps), disable=not is_main_process)
+    progress_bar = tqdm(range(global_step, num_epochs*epoch_size), disable=not is_main_process)
     progress_bar.set_description("Steps")
 
     # Support mixed-precision training
-    scaler = torch.cuda.amp.GradScaler() if mixed_precision_training else None
+    scaler = torch.amp.GradScaler('cuda') if mixed_precision_training else None
+
+    def normalize_and_rescale(image):
+        MEAN = [0.5, 0.5, 0.5]
+        SD = [0.5, 0.5, 0.5]
+        mean = torch.tensor(MEAN).view(1, 1, 3, 1, 1).to(image.device)
+        std = torch.tensor(SD).view(1, 1, 3, 1, 1).to(image.device)
+        return (image/255.0 - mean) / std
 
     unet.train()
-    for epoch in range(first_epoch, num_train_epochs):
-        train_dataloader.sampler.set_epoch(epoch)
-
+    for epoch in range(first_epoch, num_epochs):
+        epoch_loss = 0
         for step, batch in enumerate(train_dataloader):
+            sample_start_time = time.time()
+            data_wait_time = sample_start_time - sample_end_time
+
+            pixel_values = batch[0].to(device_id)
+            texts = batch[1]
+
+            pixel_values = normalize_and_rescale(pixel_values)
+            # zero_rank_print(f"Pixel shape {pixel_values}")
+            # pixel_values = rearrange(pixel_values, "b f h w c -> b f c h w")
+
             if cfg_random_null_text:
-                batch['text'] = [name if random.random() > cfg_random_null_text_ratio else "" for name in batch['text']]
+                texts = [name if random.random() > cfg_random_null_text_ratio else "" for name in texts]
 
             # Data batch sanity check
             if epoch == first_epoch and step == 0:
-                pixel_values, texts = batch['pixel_values'].cpu(), batch['text']
+                sanity_pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
                 if not image_finetune:
-
-                    pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
-                    for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
+                    for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
                         pixel_value = pixel_value[None, ...]
                         # save_frames(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}")
-                        save_video(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.mp4")
+                        save_video(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.mp4")
                 else:
-                    for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
+                    for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
                         pixel_value = pixel_value / 2. + 0.5
-                        torchvision.utils.save_image(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.png")
+                        torchvision.utils.save_image(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.png")
 
             # Periodically validation
             if is_main_process and (global_step in validation_steps_tuple):
@@ -310,8 +307,6 @@ def train_ad(
                     )
                 validation_pipeline.enable_vae_slicing()
 
-                samples = []
-
                 generator = torch.Generator(device=vae.device)
                 generator.manual_seed(global_seed)
 
@@ -323,7 +318,7 @@ def train_ad(
                 for idx, prompt in enumerate(validation_data.prompts):
                     if not image_finetune:
                         with torch.inference_mode(True):
-                            sample = validation_pipeline(
+                            pipeline_output = validation_pipeline(
                                 prompt,
                                 generator    = generator,
                                 video_length = train_data.sample_n_frames,
@@ -331,11 +326,10 @@ def train_ad(
                                 width        = width,
                                 **validation_data,
                             ).videos
-                        save_video(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
-                        samples.append(sample)
+                        save_video(pipeline_output, f"{run_dir}/samples/sample-{global_step}/{idx}.mp4")
                     else:
                         with torch.inference_mode(True):
-                            sample = validation_pipeline(
+                            pipeline_output = validation_pipeline(
                                 prompt,
                                 generator           = generator,
                                 height              = height,
@@ -343,11 +337,11 @@ def train_ad(
                                 num_inference_steps = validation_data.get("num_inference_steps", 25),
                                 guidance_scale      = validation_data.get("guidance_scale", 8.),
                             ).images[0]
-                        sample = torchvision.transforms.functional.to_tensor(sample)
-                        samples.append(sample)
+                        pipeline_output = torchvision.transforms.functional.to_tensor(pipeline_output)
+                        save_images([pipeline_output], f"{run_dir}/samples/sample-{global_step}/")
 
-                logging.info(f"Saved samples to {output_dir}")
-                del validation_pipeline, samples, sample
+                logging.info(f"Saved samples to {run_dir}")
+                del validation_pipeline, pipeline_output
                 torch.cuda.empty_cache()
                 gc.collect()
 
@@ -356,7 +350,6 @@ def train_ad(
             zero_rank_print("Convert videos to latent space", LogType.debug)
             # Convert videos to latent space
             # pixel_values = batch["pixel_values"].to(device_id, dtype=vae_dtype, memory_format=model_memory_format)
-            pixel_values = batch["pixel_values"].to(device_id)
             video_length = pixel_values.shape[1]
             with torch.no_grad():
                 if not image_finetune:
@@ -387,9 +380,10 @@ def train_ad(
 
             zero_rank_print("Get text embedding", LogType.debug)
             # Get the text embedding for conditioning
+            zero_rank_print(f"Texts {texts}")
             with torch.no_grad():
                 prompt_ids = tokenizer(
-                    batch['text'], max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
+                    texts, max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
                 ).input_ids.to(device_id)
                 encoder_hidden_states = text_encoder(prompt_ids)[0]
 
@@ -412,7 +406,7 @@ def train_ad(
             # Predict the noise residual and compute loss
             # Mixed-precision training
             zero_rank_print(f"Predict the noise residual and compute loss Mixed Precision: {mixed_precision_training}", LogType.debug)
-            with torch.cuda.amp.autocast(enabled=mixed_precision_training):
+            with torch.amp.autocast('cuda', enabled=mixed_precision_training):
                 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                 loss = loss / gradient_accumulation_steps  # Normalize loss to account for accumulation
@@ -427,8 +421,8 @@ def train_ad(
             else:
                 loss.backward()  # Gradient accumulation without scaling
 
-            # Apply the optimizer step and update the learning rate scheduler only at the end of an accumulation period or at the last batch
-            if (step + 1) % gradient_accumulation_steps == 0 or step == len(train_dataset) - 1:
+            # Apply the optimizer step and update the learning rate scheduler only at the end of an accumulation period
+            if (step + 1) % gradient_accumulation_steps == 0:
                 zero_rank_print("=== Accumulate gradients", LogType.debug)
                 if mixed_precision_training:
                     scaler.unscale_(optimizer)  # Unscale gradients before clipping
@@ -441,37 +435,37 @@ def train_ad(
 
                 lr_scheduler.step()  # Update learning rate
 
-            progress_bar.update(1)
+                sample_end_time = time.time()
+                sample_time = sample_end_time - sample_start_time
+                # Log to WandB
+                if is_main_process and step > 1 and (not is_debug) and use_wandb:
+                    wandb.log({
+                        "train_loss": loss.item() * gradient_accumulation_steps,
+                        "epoch": epoch,
+                        "sample_time": sample_time,
+                        "data_wait_time": data_wait_time
+                    }, step=global_step)
+                    zero_rank_print(f"train_loss {loss.item() * gradient_accumulation_steps} epoch {epoch} sample_time {sample_time} data_wait_time {data_wait_time}", LogType.debug)
+                epoch_loss += loss.item() * gradient_accumulation_steps
+
+            # Update the progress bar
+            progress_bar.set_postfix(loss=epoch_loss / (step + 1))
             global_step += 1
             ### <<<< Training <<<< ###
-
-            # Save checkpoint
-            if is_main_process and (global_step % checkpointing_steps == 0 or step == len(train_dataset) - 1):
-                save_path = os.path.join(output_dir, f"checkpoints")
-                state_dict = {
-                    "epoch": epoch,
-                    "global_step": global_step,
-                    "state_dict": unet.state_dict(),
-                }
-                if step == len(train_dataset) - 1:
-                    torch.save(state_dict, os.path.join(save_path, f"checkpoint-epoch-{epoch+1}.ckpt"))
-                else:
-                    torch.save(state_dict, os.path.join(save_path, f"checkpoint.ckpt"))
-                logging.info(f"Saved state to {save_path} (global_step: {global_step})")
-
-            # Logging
-            logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
-            progress_bar.set_postfix(**logs)
-
-            # Wandb logging
-            if is_main_process and (not is_debug) and use_wandb:
-                wandb.log({"train_loss": (loss * gradient_accumulation_steps).item()}, step=global_step)
 
             del loss
             torch.cuda.empty_cache()
 
-            if global_step >= max_train_steps:
-                break
+        # Save checkpoint
+        if is_main_process:
+            state_dict = {
+                "epoch": epoch,
+                "global_step": global_step,
+                "state_dict": unet.state_dict(),
+            }
+            torch.save(state_dict, f"{checkpoint_dir}/animatediff_epoch_{epoch}.pth")
+            wandb.save(f"animatediff_{run_name}_epoch_{epoch}.pth")
+            logging.info(f"Saved state to {checkpoint_dir} (global_step: {global_step})")
 
         # Additional cleanup at the end of an epoch if applicable
         gc.collect()  # Force garbage collection

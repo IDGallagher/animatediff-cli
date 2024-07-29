@@ -52,43 +52,43 @@ def load_ip_adapter(sd_model_path:str, is_plus:bool=True, scale:float=1.0, devic
     return ip_adapter
 
 def train_mp(
-        name: str,
-        use_wandb: bool,
+    name: str,
+    use_wandb: bool,
 
-        output_dir: str,
-        sd_model_path: str,
+    output_dir: str,
+    sd_model_path: str,
 
-        train_data: Dict,
-        validation_data: Dict,
-        device_id: int,
+    train_data: Dict,
+    validation_data: Dict,
+    device_id: int,
 
-        epoch_size:int = 1000,
-        num_epochs:int = 1,
-        validation_steps: int = 100,
-        validation_steps_tuple: Tuple = (-1,),
+    epoch_size:int = 1000,
+    num_epochs:int = 1,
+    validation_steps: int = 100,
+    validation_steps_tuple: Tuple = (-1,),
 
-        learning_rate: float = 3e-5,
-        scale_lr: bool = False,
-        lr_warmup_steps: int = 0,
-        lr_scheduler: str = "constant",
+    learning_rate: float = 3e-5,
+    scale_lr: bool = False,
+    lr_warmup_steps: int = 0,
+    lr_scheduler: str = "constant",
 
-        num_workers: int = 1,
-        train_batch_size: int = 1,
-        adam_beta1: float = 0.9,
-        adam_beta2: float = 0.999,
-        adam_weight_decay: float = 1e-2,
-        adam_epsilon: float = 1e-08,
-        max_grad_norm: float = 1.0,
-        gradient_accumulation_steps: int = 1,
-        gradient_checkpointing: bool = False,
-        checkpointing_epochs: int = 5,
-        checkpointing_steps: int = -1,
+    num_workers: int = 1,
+    train_batch_size: int = 1,
+    adam_beta1: float = 0.9,
+    adam_beta2: float = 0.999,
+    adam_weight_decay: float = 1e-2,
+    adam_epsilon: float = 1e-08,
+    max_grad_norm: float = 1.0,
+    gradient_accumulation_steps: int = 1,
+    gradient_checkpointing: bool = False,
+    checkpointing_epochs: int = 5,
+    checkpointing_steps: int = -1,
 
-        mixed_precision_training: bool = True,
-        enable_xformers_memory_efficient_attention: bool = True,
+    mixed_precision_training: bool = True,
+    enable_xformers_memory_efficient_attention: bool = True,
 
-        global_seed: int = 42,
-        is_debug: bool = False,
+    global_seed: int = 42,
+    is_debug: bool = False,
 ):
     # Initialize distributed training
     global_rank     = dist.get_rank()
@@ -102,10 +102,11 @@ def train_mp(
     sample_end_time = time.time()
 
     # Logging folder
-    folder_name = "debug" if is_debug else name + datetime.datetime.now().strftime("-%Y-%m-%dT%H-%M-%S")
-    output_dir = os.path.join(output_dir, folder_name)
-    if is_debug and os.path.exists(output_dir):
-        os.system(f"rm -rf {output_dir}")
+    run_name = name + datetime.datetime.now().strftime("-%Y-%m-%dT%H-%M-%S")
+    folder_name = "debug" if is_debug else run_name
+    run_dir = os.path.join(output_dir, folder_name)
+    if is_debug and os.path.exists(run_dir):
+        os.system(f"rm -rf {run_dir}")
 
     *_, config = inspect.getargvalues(inspect.currentframe())
 
@@ -114,11 +115,11 @@ def train_mp(
 
     # Handle the output folder creation
     if is_main_process:
-        os.makedirs(output_dir, exist_ok=True)
-        os.makedirs(f"{output_dir}/samples", exist_ok=True)
-        os.makedirs(f"{output_dir}/sanity_check", exist_ok=True)
-        os.makedirs(f"{output_dir}/checkpoints", exist_ok=True)
-        OmegaConf.save(config, os.path.join(output_dir, 'config.yaml'))
+        os.makedirs(run_dir, exist_ok=True)
+        os.makedirs(f"{run_dir}/samples", exist_ok=True)
+        os.makedirs(f"{run_dir}/sanity_check", exist_ok=True)
+        os.makedirs(f"{run_dir}/checkpoints", exist_ok=True)
+        OmegaConf.save(config, os.path.join(run_dir, 'config.yaml'))
 
     # Load models and move to GPU
     ip_adapter = load_ip_adapter(sd_model_path, is_plus=True, device=device_id)
@@ -204,14 +205,7 @@ def train_mp(
     progress_bar.set_description("Steps")
 
     # Support mixed-precision training
-    scaler = torch.cuda.amp.GradScaler() if mixed_precision_training else None
-
-    clip_image_processor = CLIPImageProcessor(
-            do_resize=False,
-            do_center_crop=False,
-            do_rescale=True,
-            do_normalize=True
-        )
+    scaler = torch.amp.GradScaler('cuda') if mixed_precision_training else None
 
     # DUMMY
     # batches = []
@@ -223,8 +217,12 @@ def train_mp(
     # End DUMMY
 
     # Normalize and rescale images
-    mean = torch.tensor([0.48145466, 0.4578275, 0.40821073]).view(1, 1, 3, 1, 1).to(device_id)
-    std = torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(1, 1, 3, 1, 1).to(device_id)
+    def normalize_and_rescale(image):
+        MEAN = [0.48145466, 0.4578275, 0.40821073]
+        SD = [0.26862954, 0.26130258, 0.27577711]
+        mean = torch.tensor(MEAN).view(1, 1, 3, 1, 1).to(image.device)
+        std = torch.tensor(SD).view(1, 1, 3, 1, 1).to(image.device)
+        return (image/255.0 - mean) / std
 
     # Training loop
     model.train()
@@ -239,7 +237,7 @@ def train_mp(
         # End DUMMY
 
             pixel_values = batch[0].to(device_id)
-            pixel_values = (pixel_values/255.0 - mean) / std
+            pixel_values = normalize_and_rescale(pixel_values)
             logger.debug(f"Pixel values {pixel_values.shape} {pixel_values.device}")
 
             # frames_per_batch = pixel_values.shape[1]
@@ -252,8 +250,8 @@ def train_mp(
                 sanity_pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
                 for idx, pixel_value in enumerate(sanity_pixel_values):
                     pixel_value = pixel_value[None, ...]
-                    save_frames(pixel_value, f"{output_dir}/sanity_check/{epoch}-{step}-{idx}/")
-                    save_video(pixel_value, f"{output_dir}/sanity_check/{epoch}-{step}-{idx}.mp4")
+                    save_frames(pixel_value, f"{run_dir}/sanity_check/{epoch}-{step}-{idx}/")
+                    save_video(pixel_value, f"{run_dir}/sanity_check/{epoch}-{step}-{idx}.mp4")
 
             # Get image embeddings using the provided IP adapter method
             ground_truth = ip_adapter.get_image_embeds_preprocessed(pixel_values)
@@ -261,7 +259,7 @@ def train_mp(
 
             # Forward pass
             zero_rank_print(f"Forward Pass with Mixed Precision: {mixed_precision_training} Total frames: {ground_truth.shape[1]}", LogType.debug)
-            with torch.cuda.amp.autocast(enabled=mixed_precision_training):
+            with torch.amp.autocast('cuda', enabled=mixed_precision_training):
                 outputs = model(ground_truth[:, 0], ground_truth[:, -1], total_frames=ground_truth.shape[1])
                 loss = criterion(outputs, ground_truth) / gradient_accumulation_steps
 
@@ -272,6 +270,7 @@ def train_mp(
             else:
                 loss.backward()  # Gradient accumulation without scaling
 
+            # Apply the optimizer step and update the learning rate scheduler only at the end of an accumulation period
             if (step + 1) % gradient_accumulation_steps == 0:
                 zero_rank_print("=== Accumulate gradients", LogType.debug)
                 if mixed_precision_training:
@@ -307,10 +306,10 @@ def train_mp(
         if is_main_process:
             # Assuming the model is wrapped in DataParallel or DistributedDataParallel
             if isinstance(model, (torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel)):
-                torch.save(model.module.state_dict(), f"{output_dir}/checkpoints/motion_predictor_epoch_{epoch}.pth")
+                torch.save(model.module.state_dict(), f"{output_dir}/checkpoints/{run_name}/motion_predictor_epoch_{epoch}.pth")
             else:
-                torch.save(model.state_dict(), f"{output_dir}/checkpoints/motion_predictor_epoch_{epoch}.pth")
-            wandb.save(f"checkpoint_epoch_{epoch}.pth")
+                torch.save(model.state_dict(), f"{output_dir}/checkpoints/{run_name}/motion_predictor_epoch_{epoch}.pth")
+            wandb.save(f"motion_predictor_{run_name}_epoch_{epoch}.pth")
 
     # Cleanup
     dist.barrier()

@@ -9,21 +9,27 @@ python .\src\animatediff\__main__.py generate -c config\prompts\IPAImageTestCow.
 
 python ./src/animatediff/__main__.py generate -c config/prompts/IPAImageTestCow.json
 python ./src/animatediff/__main__.py train motionpredictor -w -c config/training/training_mp.yaml
+python ./src/animatediff/__main__.py train animatediff -w -c config/training/training_ad.yaml
 
 
 
 
-apt update
-apt upgrade
-apt install sudo
-apt install ffmpeg
-apt install iftop
-apt-get install git-lfs
-apt install unzip
+apt update -y
+apt upgrade -y
+apt install sudo -y
+apt install ffmpeg -y
+apt install iftop -y
+apt-get install git-lfs -y
+apt install unzip -y
 
 # Copy aws.zip to ~ and unzip
 # Copy secrets.dat to ~
 pip install wandb; source ~/secrets.dat; wandb login $WANDB_API_KEY;
+
+sudo /workspace/aws/install
+cd animatediff-cli
+source .venv/bin/activate
+
 
 git clone https://github.com/neggles/animatediff-cli
 cd animatediff-cli

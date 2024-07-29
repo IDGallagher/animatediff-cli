@@ -7,7 +7,7 @@ from diffusers.configuration_utils import ConfigMixin
 from diffusers.models import ModelMixin
 from einops import rearrange
 from torch import nn
-from x_transformers import ContinuousTransformerWrapper, Decoder
+from x_transformers import ContinuousTransformerWrapper, Decoder, Encoder
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +24,11 @@ class MotionPredictor(ModelMixin, ConfigMixin):
             dim_out = token_dim,
             max_seq_len = 256,
             use_abs_pos_emb = False,
-            attn_layers = Decoder(
+            attn_layers = Encoder(
                 dim = hidden_dim,
                 depth = num_layers,
                 heads = num_heads,
-                rotary_xpos = True
+                rotary_pos_emb = True,
             )
         )
         # self.transformer = nn.TransformerDecoder(
