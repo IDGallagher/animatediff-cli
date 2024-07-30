@@ -57,22 +57,22 @@ trainable_modules:
 
 unet_checkpoint_path: ""
 
-learning_rate:    1.e-4
+learning_rate:    5.e-5
 train_batch_size: 1
-gradient_accumulation_steps: 1
-num_workers: 1
+gradient_accumulation_steps: 10
+num_workers: 20
 
-epoch_size:           1000
+epoch_size:           100
 num_epochs:           10
 checkpointing_epochs: -1
-checkpointing_steps:  1000
+checkpointing_steps:  100
 
-# validation_steps:       5000
-validation_steps_tuple: [100, 1000]
+validation_steps:       50
+validation_steps_tuple: [10, 20, 30, 40, 60, 70, 80, 90]
 
 global_seed: 42
 mixed_precision_training: True
-enable_xformers_memory_efficient_attention: True
+enable_xformers_memory_efficient_attention: False
 gradient_checkpointing: False
 
 is_debug: False

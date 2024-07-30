@@ -1,0 +1,21 @@
+{
+  "name": "ValidCow",
+  "base": "",
+  "path": "data/models/sd/stable-diffusion-v1-5/v1-5-pruned.safetensors",
+  "motion_module": "models/motion-module/mm_sd_v15_v2.ckpt",
+  "compile": false,
+  "seed": [
+    42
+  ],
+  "video_fps":  6,
+  "scheduler": "ddim",
+  "steps": 25,
+  "guidance_scale": 7.5,
+  "clip_skip": 1,
+  "prompts": [
+    "Two cows eating hay"
+  ],
+  "n_prompts": [
+    ""
+  ]
+}

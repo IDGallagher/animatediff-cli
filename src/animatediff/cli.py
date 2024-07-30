@@ -85,6 +85,29 @@ def version_callback(value: bool):
         raise typer.Exit()
 
 @cli.command()
+def filter(
+    input_checkpoint_path: str = typer.Option(..., "--input", "-i", help="Path to the input model checkpoint."),
+    output_checkpoint_path: str = typer.Option(..., "--output", "-o", help="Path to save the filtered model checkpoint."),
+    filter_keyword: str = typer.Option("motion_modules", "--filter", "-f", help="Keyword to filter the state dictionary.")
+):
+    """
+    Loads a model checkpoint, filters the state dictionary to retain only entries containing the specified keyword,
+    and saves the filtered dictionary to a new file.
+    """
+    # Load the complete state dictionary from the checkpoint
+    raw_state_dict = torch.load(input_checkpoint_path, map_location='cpu')['state_dict']
+
+    # Modify the keys by removing 'module.' prefix if it exists
+    state_dict = {k.replace('module.', ''): v for k, v in raw_state_dict.items()}
+
+    # Filter the state dictionary to keep only keys that contain the filter keyword
+    filtered_state_dict = {key: value for key, value in state_dict.items() if filter_keyword in key}
+
+    # Save the filtered state dictionary to a new .pth file
+    torch.save(filtered_state_dict, output_checkpoint_path)
+    typer.echo(f"Filtered state dictionary saved to {output_checkpoint_path}")
+
+@cli.command()
 def train(
     model: Annotated[
         TrainLauncher,

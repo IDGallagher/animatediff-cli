@@ -47,7 +47,7 @@ class VanillaTemporalModule(nn.Module):
     ):
         super().__init__()
 
-        self.temporal_transformer = TemporalTransformer3DModel(
+        self.temporal_transformer = TemporalTransformer3DModelModified(
             in_channels=in_channels,
             num_attention_heads=num_attention_heads,
             attention_head_dim=in_channels // num_attention_heads // temporal_attention_dim_div,
@@ -157,6 +157,47 @@ class TemporalTransformer3DModel(nn.Module):
         output = hidden_states + residual
         output = rearrange(output, "(b f) c h w -> b c f h w", f=video_length)
 
+        return output
+
+@allow_in_graph
+class TemporalTransformer3DModelModified(TemporalTransformer3DModel):
+
+    def forward(
+        self,
+        hidden_states: Tensor,
+        encoder_hidden_states: Optional[Tensor] = None,
+        attention_mask: Optional[Tensor] = None,
+    ):
+        assert (
+            hidden_states.dim() == 5
+        ), f"Expected hidden_states to have ndim=5, but got ndim={hidden_states.dim()}."
+        video_length = hidden_states.shape[2]
+
+        residual = hidden_states
+
+        hidden_states = self.norm(hidden_states)
+
+        hidden_states = rearrange(hidden_states, "b c f h w -> (b f) c h w")
+        batch, channel, height, weight = hidden_states.shape
+
+        inner_dim = hidden_states.shape[1]
+        hidden_states = hidden_states.permute(0, 2, 3, 1).reshape(batch, height * weight, inner_dim)
+        hidden_states = self.proj_in(hidden_states)
+
+        # Transformer Blocks
+        for block in self.transformer_blocks:
+            hidden_states = block(
+                hidden_states, encoder_hidden_states=encoder_hidden_states, video_length=video_length
+            )
+
+        # output
+        hidden_states = self.proj_out(hidden_states)
+        hidden_states = (
+            hidden_states.reshape(batch, height, weight, inner_dim).permute(0, 3, 1, 2).contiguous()
+        )
+
+        output = rearrange(hidden_states, "(b f) c h w -> b c f h w", f=video_length)
+        output = output + residual
         return output
 
 

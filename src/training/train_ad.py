@@ -118,14 +118,12 @@ def train_ad(
     if is_main_process and (not is_debug) and use_wandb:
         run = wandb.init(project="animatediff", name=folder_name, config=config)
 
-    checkpoint_dir = os.path.join(output_dir, f"checkpoints/{run_name}/")
-
     # Handle the output folder creation
     if is_main_process:
         os.makedirs(run_dir, exist_ok=True)
         os.makedirs(f"{run_dir}/samples", exist_ok=True)
         os.makedirs(f"{run_dir}/sanity_check", exist_ok=True)
-        os.makedirs(checkpoint_dir, exist_ok=True)
+        os.makedirs(f"checkpoints", exist_ok=True)
         OmegaConf.save(config, os.path.join(run_dir, 'config.yaml'))
 
     # set up scheduler
@@ -152,7 +150,10 @@ def train_ad(
         zero_rank_print(f"Loading from checkpoint: {unet_checkpoint_path}")
         unet_checkpoint_path = torch.load(unet_checkpoint_path, map_location="cpu")
         if "global_step" in unet_checkpoint_path: zero_rank_print(f"global_step: {unet_checkpoint_path['global_step']}")
-        state_dict = unet_checkpoint_path["state_dict"] if "state_dict" in unet_checkpoint_path else unet_checkpoint_path
+        raw_state_dict = unet_checkpoint_path["state_dict"] if "state_dict" in unet_checkpoint_path else unet_checkpoint_path
+
+        # Modify the keys by removing 'module.' prefix if it exists
+        state_dict = {k.replace('module.', ''): v for k, v in raw_state_dict.items()}
 
         m, u = unet.load_state_dict(state_dict, strict=False)
         zero_rank_print(f"missing keys: {len(m)}, unexpected keys: {len(u)}")
@@ -279,20 +280,23 @@ def train_ad(
                 texts = [name if random.random() > cfg_random_null_text_ratio else "" for name in texts]
 
             # Data batch sanity check
-            if epoch == first_epoch and step == 0:
+            if epoch == first_epoch and step < 4:
                 sanity_pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
                 if not image_finetune:
                     for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
                         pixel_value = pixel_value[None, ...]
                         # save_frames(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}")
-                        save_video(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.mp4")
+                        save_video(pixel_value.cpu(), f"{run_dir}/sanity_check/{step}-{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{step}-{idx}'}.mp4")
                 else:
                     for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
                         pixel_value = pixel_value / 2. + 0.5
-                        torchvision.utils.save_image(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}.png")
+                        torchvision.utils.save_image(pixel_value.cpu(), f"{run_dir}/sanity_check/{step}-{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{step}-{idx}'}.png")
+
+            ### >>>> Training >>>> ###
 
             # Periodically validation
-            if is_main_process and (global_step in validation_steps_tuple):
+            actual_steps = global_step/gradient_accumulation_steps
+            if is_main_process and actual_steps in validation_steps_tuple or actual_steps % validation_steps == 0:
                 zero_rank_print("Validation")
 
                 # Validation pipeline
@@ -324,9 +328,13 @@ def train_ad(
                                 video_length = train_data.sample_n_frames,
                                 height       = height,
                                 width        = width,
-                                **validation_data,
+                                num_inference_steps = validation_data.get("num_inference_steps", 25),
+                                guidance_scale      = validation_data.get("guidance_scale", 7.5),
+                                context_frames = train_data.sample_n_frames,
+                                context_stride = 1,
+                                context_overlap = 4,
                             ).videos
-                        save_video(pipeline_output, f"{run_dir}/samples/sample-{global_step}/{idx}.mp4")
+                        save_video(pipeline_output, f"{run_dir}/samples/sample-{actual_steps}/{idx}.mp4")
                     else:
                         with torch.inference_mode(True):
                             pipeline_output = validation_pipeline(
@@ -338,14 +346,12 @@ def train_ad(
                                 guidance_scale      = validation_data.get("guidance_scale", 8.),
                             ).images[0]
                         pipeline_output = torchvision.transforms.functional.to_tensor(pipeline_output)
-                        save_images([pipeline_output], f"{run_dir}/samples/sample-{global_step}/")
+                        save_images([pipeline_output], f"{run_dir}/samples/sample-{actual_steps}/")
 
                 logging.info(f"Saved samples to {run_dir}")
                 del validation_pipeline, pipeline_output
                 torch.cuda.empty_cache()
                 gc.collect()
-
-            ### >>>> Training >>>> ###
 
             zero_rank_print("Convert videos to latent space", LogType.debug)
             # Convert videos to latent space
@@ -444,7 +450,7 @@ def train_ad(
                         "epoch": epoch,
                         "sample_time": sample_time,
                         "data_wait_time": data_wait_time
-                    }, step=global_step)
+                    })
                     zero_rank_print(f"train_loss {loss.item() * gradient_accumulation_steps} epoch {epoch} sample_time {sample_time} data_wait_time {data_wait_time}", LogType.debug)
                 epoch_loss += loss.item() * gradient_accumulation_steps
 
@@ -461,11 +467,11 @@ def train_ad(
             state_dict = {
                 "epoch": epoch,
                 "global_step": global_step,
-                "state_dict": unet.state_dict(),
+                "state_dict": unet.module.state_dict(),
             }
-            torch.save(state_dict, f"{checkpoint_dir}/animatediff_epoch_{epoch}.pth")
+            torch.save(state_dict, f"{run_name}_animatediff_epoch_{epoch}.pth")
             wandb.save(f"animatediff_{run_name}_epoch_{epoch}.pth")
-            logging.info(f"Saved state to {checkpoint_dir} (global_step: {global_step})")
+            logging.info(f"Saved state to checkpoints {run_name} (global_step: {global_step})")
 
         # Additional cleanup at the end of an epoch if applicable
         gc.collect()  # Force garbage collection

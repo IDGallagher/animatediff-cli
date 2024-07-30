@@ -8,6 +8,7 @@ torchrun --nnodes=1 --nproc_per_node=1 ./src/animatediff/__main__.py train motio
 python .\src\animatediff\__main__.py generate -c config\prompts\IPAImageTestCow.json
 
 python ./src/animatediff/__main__.py generate -c config/prompts/IPAImageTestCow.json
+python ./src/animatediff/__main__.py generate -c config/prompts/ValidationCow.json
 python ./src/animatediff/__main__.py train motionpredictor -w -c config/training/training_mp.yaml
 python ./src/animatediff/__main__.py train animatediff -w -c config/training/training_ad.yaml
 

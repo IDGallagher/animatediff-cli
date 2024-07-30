@@ -18,15 +18,6 @@ from torchaudio.io import StreamReader
 from torchaudio.utils import ffmpeg_utils
 from transformers import CLIPImageProcessor
 
-print("FFmpeg Library versions:")
-for k, ver in ffmpeg_utils.get_versions().items():
-    print(f"  {k}:\t{'.'.join(str(v) for v in ver)}")
-
-print("Available NVDEC Decoders:")
-for k in ffmpeg_utils.get_video_decoders().keys():
-    if "cuvid" in k:
-        print(f" - {k}")
-
 sys.path.append("./webdataset/")
 import wids as wids  # type: ignore
 
