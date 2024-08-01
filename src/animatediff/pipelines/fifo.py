@@ -21,351 +21,72 @@ from diffusers.utils import (BaseOutput, deprecate, is_accelerate_available,
 from diffusers.utils.torch_utils import randn_tensor
 from einops import rearrange
 from packaging import version
+from tqdm import trange
 from tqdm.rich import tqdm
 from transformers import CLIPImageProcessor, CLIPTokenizer
 
 from animatediff.models.clip import CLIPSkipTextModel
 from animatediff.models.unet import UNet3DConditionModel
+from animatediff.pipelines import AnimationPipeline, AnimationPipelineOutput
 from animatediff.pipelines.context import (get_context_scheduler,
                                            get_total_steps)
 from animatediff.utils.model import nop_train
-from animatediff.utils.util import get_tensor_interpolation_method
+from animatediff.utils.util import get_tensor_interpolation_method, save_video
 from ip_adapter import IPAdapter, IPAdapterPlus
 
 logger = logging.getLogger(__name__)
 
+def prepare_fifo_latents(video, scheduler, lookahead_denoising:bool=True):
+    latents_list = []
+    context_frames = video.shape[2]
+    num_inference_steps = scheduler.timesteps.shape[0]
+    if lookahead_denoising:
+        for i in range(context_frames // 2):
+            noise = torch.randn_like(video[:,:,[0]])
+            latents = scheduler.add_noise(video[:,:,[0]], noise, scheduler.timesteps[0])
+            latents_list.append(latents)
 
-@dataclass
-class AnimationPipelineOutput(BaseOutput):
-    videos: Union[torch.Tensor, np.ndarray]
+    for i in range(num_inference_steps):
+        frame_idx = max(0, i-(num_inference_steps - context_frames))
+        noise = torch.randn_like(video[:,:,[frame_idx]])
+        latents = scheduler.add_noise(video[:,:,[frame_idx]], noise, scheduler.timesteps[i])
+        latents_list.append(latents)
 
+    return torch.cat(latents_list, dim=2)
 
-class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
-    _optional_components = ["feature_extractor"]
+def shift_latents(latents):
+    # shift latents
+    latents[:,:,:-1] = latents[:,:,1:].clone()
 
-    vae: AutoencoderKL
-    text_encoder: CLIPSkipTextModel
-    tokenizer: CLIPTokenizer
-    unet: UNet3DConditionModel
-    feature_extractor: CLIPImageProcessor
-    scheduler: Union[
-        DDIMScheduler,
-        DPMSolverMultistepScheduler,
-        EulerAncestralDiscreteScheduler,
-        EulerDiscreteScheduler,
-        LMSDiscreteScheduler,
-        PNDMScheduler,
-    ]
-    ip_adapter: IPAdapter = None
+    # add new noise to the last frame
+    latents[:,:,-1] = torch.randn_like(latents[:,:,-1])
 
-    def __init__(
-        self,
-        vae: AutoencoderKL,
-        text_encoder: CLIPSkipTextModel,
-        tokenizer: CLIPTokenizer,
-        unet: UNet3DConditionModel,
-        scheduler: Union[
-            DDIMScheduler,
-            PNDMScheduler,
-            LMSDiscreteScheduler,
-            EulerDiscreteScheduler,
-            EulerAncestralDiscreteScheduler,
-            DPMSolverMultistepScheduler,
-        ],
-        feature_extractor: CLIPImageProcessor,
-    ):
-        super().__init__()
+    return latents
 
-        if hasattr(scheduler.config, "steps_offset") and scheduler.config.steps_offset != 1:
-            deprecation_message = (
-                f"The configuration file of this scheduler: {scheduler} is outdated. `steps_offset`"
-                f" should be set to 1 instead of {scheduler.config.steps_offset}. Please make sure "
-                "to update the config accordingly as leaving `steps_offset` might led to incorrect results"
-                " in future versions. If you have downloaded this checkpoint from the Hugging Face Hub,"
-                " it would be very nice if you could open a Pull request for the `scheduler/scheduler_config.json`"
-                " file"
-            )
-            deprecate("steps_offset!=1", "1.0.0", deprecation_message, standard_warn=False)
-            new_config = dict(scheduler.config)
-            new_config["steps_offset"] = 1
-            scheduler._internal_dict = FrozenDict(new_config)
+class FifoPipeline(AnimationPipeline):
 
-        if hasattr(scheduler.config, "clip_sample") and scheduler.config.clip_sample is True:
-            deprecation_message = (
-                f"The configuration file of this scheduler: {scheduler} has not set the configuration `clip_sample`."
-                " `clip_sample` should be set to False in the configuration file. Please make sure to update the"
-                " config accordingly as not setting `clip_sample` in the config might lead to incorrect results in"
-                " future versions. If you have downloaded this checkpoint from the Hugging Face Hub, it would be very"
-                " nice if you could open a Pull request for the `scheduler/scheduler_config.json` file"
-            )
-            deprecate("clip_sample not set", "1.0.0", deprecation_message, standard_warn=False)
-            new_config = dict(scheduler.config)
-            new_config["clip_sample"] = False
-            scheduler._internal_dict = FrozenDict(new_config)
-
-        is_unet_version_less_0_9_0 = hasattr(unet.config, "_diffusers_version") and version.parse(
-            version.parse(unet.config._diffusers_version).base_version
-        ) < version.parse("0.9.0.dev0")
-        is_unet_sample_size_less_64 = hasattr(unet.config, "sample_size") and unet.config.sample_size < 64
-        if is_unet_version_less_0_9_0 and is_unet_sample_size_less_64:
-            deprecation_message = (
-                "The configuration file of the unet has set the default `sample_size` to smaller than"
-                " 64 which seems highly unlikely. If your checkpoint is a fine-tuned version of any of the"
-                " following: \n- CompVis/stable-diffusion-v1-4 \n- CompVis/stable-diffusion-v1-3 \n-"
-                " CompVis/stable-diffusion-v1-2 \n- CompVis/stable-diffusion-v1-1 \n- runwayml/stable-diffusion-v1-5"
-                " \n- runwayml/stable-diffusion-inpainting \n you should change 'sample_size' to 64 in the"
-                " configuration file. Please make sure to update the config accordingly as leaving `sample_size=32`"
-                " in the config might lead to incorrect results in future versions. If you have downloaded this"
-                " checkpoint from the Hugging Face Hub, it would be very nice if you could open a Pull request for"
-                " the `unet/config.json` file"
-            )
-            deprecate("sample_size<64", "1.0.0", deprecation_message, standard_warn=False)
-            new_config = dict(unet.config)
-            new_config["sample_size"] = 64
-            unet._internal_dict = FrozenDict(new_config)
-
-        self.register_modules(
-            vae=vae,
-            text_encoder=text_encoder,
-            tokenizer=tokenizer,
-            unet=unet,
-            scheduler=scheduler,
-            feature_extractor=feature_extractor,
-        )
-        self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
-        self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
-
-    def enable_vae_slicing(self):
-        r"""
-        Enable sliced VAE decoding.
-
-        When this option is enabled, the VAE will split the input tensor in slices to compute decoding in several
-        steps. This is useful to save some memory and allow larger batch sizes.
-        """
-        self.vae.enable_slicing()
-
-    def disable_vae_slicing(self):
-        r"""
-        Disable sliced VAE decoding. If `enable_vae_slicing` was previously invoked, this method will go back to
-        computing decoding in one step.
-        """
-        self.vae.disable_slicing()
-
-    def enable_vae_tiling(self):
-        r"""
-        Enable tiled VAE decoding.
-
-        When this option is enabled, the VAE will split the input tensor into tiles to compute decoding and encoding in
-        several steps. This is useful to save a large amount of memory and to allow the processing of larger images.
-        """
-        self.vae.enable_tiling()
-
-    def disable_vae_tiling(self):
-        r"""
-        Disable tiled VAE decoding. If `enable_vae_tiling` was previously invoked, this method will go back to
-        computing decoding in one step.
-        """
-        self.vae.disable_tiling()
-
-    def enable_model_cpu_offload(self, gpu_id=0):
-        r"""
-        Offloads all models to CPU using accelerate, reducing memory usage with a low impact on performance. Compared
-        to `enable_sequential_cpu_offload`, this method moves one whole model at a time to the GPU when its `forward`
-        method is called, and the model remains in GPU until the next model runs. Memory savings are lower than with
-        `enable_sequential_cpu_offload`, but performance is much better due to the iterative execution of the `unet`.
-        """
-        if is_accelerate_available() and is_accelerate_version(">=", "0.17.0.dev0"):
-            from accelerate import cpu_offload_with_hook
-        else:
-            raise ImportError("`enable_model_cpu_offload` requires `accelerate v0.17.0` or higher.")
-
-        device = torch.device(f"cuda:{gpu_id}")
-
-        if self.device.type != "cpu":
-            self.to("cpu", silence_dtype_warnings=True)
-            torch.cuda.empty_cache()  # otherwise we don't see the memory savings (but they probably exist)
-
-        hook = None
-        for cpu_offloaded_model in [self.text_encoder, self.unet, self.vae]:
-            _, hook = cpu_offload_with_hook(cpu_offloaded_model, device, prev_module_hook=hook)
-
-        if self.safety_checker is not None:
-            _, hook = cpu_offload_with_hook(self.safety_checker, device, prev_module_hook=hook)
-
-        # We'll offload the last model manually.
-        self.final_offload_hook = hook
-
-    @property
-    def _execution_device(self):
-        r"""
-        Returns the device on which the pipeline's models will be executed. After calling
-        `pipeline.enable_sequential_cpu_offload()` the execution device can only be inferred from Accelerate's module
-        hooks.
-        """
-        if not hasattr(self.unet, "_hf_hook"):
-            return self.device
-        for module in self.unet.modules():
-            if (
-                hasattr(module, "_hf_hook")
-                and hasattr(module._hf_hook, "execution_device")
-                and module._hf_hook.execution_device is not None
-            ):
-                return torch.device(module._hf_hook.execution_device)
-        return self.device
-
-    def _encode_prompt(
-        self,
-        prompt,
-        device,
-        num_videos_per_prompt: int = 1,
-        do_classifier_free_guidance: bool = False,
-        negative_prompt=None,
-        prompt_embeds: Optional[torch.FloatTensor] = None,
-        negative_prompt_embeds: Optional[torch.FloatTensor] = None,
-        lora_scale: Optional[float] = None,
-        clip_skip: int = 1,
-    ):
-        # set lora scale so that monkey patched LoRA
-        # function of text encoder can correctly access it
-        if lora_scale is not None and isinstance(self, LoraLoaderMixin):
-            self._lora_scale = lora_scale
-
-        batch_size = len(prompt) if isinstance(prompt, list) else 1
-
-        if prompt_embeds is None:
-            # textual inversion: procecss multi-vector tokens if necessary
-            if isinstance(self, TextualInversionLoaderMixin):
-                prompt = self.maybe_convert_prompt(prompt, self.tokenizer)
-
-            text_inputs = self.tokenizer(
-                prompt,
-                padding="max_length",
-                max_length=self.tokenizer.model_max_length,
-                truncation=True,
-                return_tensors="pt",
-            )
-            text_input_ids = text_inputs.input_ids
-            untruncated_ids = self.tokenizer(prompt, padding="longest", return_tensors="pt").input_ids
-
-            if untruncated_ids.shape[-1] >= text_input_ids.shape[-1] and not torch.equal(
-                text_input_ids, untruncated_ids
-            ):
-                removed_text = self.tokenizer.batch_decode(
-                    untruncated_ids[:, self.tokenizer.model_max_length - 1 : -1]
-                )
-                logger.warning(
-                    "The following part of your input was truncated because CLIP can only handle sequences up to"
-                    f" {self.tokenizer.model_max_length} tokens: {removed_text}"
-                )
-
-            if (
-                hasattr(self.text_encoder.config, "use_attention_mask")
-                and self.text_encoder.config.use_attention_mask
-            ):
-                attention_mask = text_inputs.attention_mask.to(device)
-            else:
-                attention_mask = None
-
-            prompt_embeds = self.text_encoder(
-                text_input_ids.to(device),
-                attention_mask=attention_mask,
-                clip_skip=clip_skip,
-            )
-            prompt_embeds = prompt_embeds[0]
-
-        bs_embed, seq_len, _ = prompt_embeds.shape
-        # duplicate text embeddings for each generation per prompt, using mps friendly method
-        prompt_embeds = prompt_embeds.repeat(1, num_videos_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(bs_embed * num_videos_per_prompt, seq_len, -1)
-
-        # get unconditional embeddings for classifier free guidance
-        if do_classifier_free_guidance and negative_prompt_embeds is None:
-            negative_tokens: list[str]
-            if negative_prompt is None:
-                negative_tokens = [""] * batch_size
-            elif isinstance(negative_prompt, str):
-                negative_tokens = [negative_prompt] * batch_size
-            elif batch_size != len(negative_prompt):
-                raise ValueError(
-                    f"`negative_prompt`: {negative_prompt} has batch size {len(negative_prompt)}, but `prompt`:"
-                    f" {prompt} has batch size {batch_size}. Please make sure that passed `negative_prompt` matches"
-                    " the batch size of `prompt`."
-                )
-            else:
-                negative_tokens = negative_prompt
-
-            # textual inversion: process multi-vector tokens if necessary
-            if isinstance(self, TextualInversionLoaderMixin):
-                negative_tokens = self.maybe_convert_prompt(negative_tokens, self.tokenizer)
-
-            max_length = prompt_embeds.shape[1]
-            neg_input_ids = self.tokenizer(
-                negative_tokens,
-                padding="max_length",
-                max_length=max_length,
-                truncation=True,
-                return_tensors="pt",
-            )
-            uncond_input_ids = neg_input_ids.input_ids
-
-            if (
-                hasattr(self.text_encoder.config, "use_attention_mask")
-                and self.text_encoder.config.use_attention_mask
-            ):
-                attention_mask = neg_input_ids.attention_mask.to(device)
-            else:
-                attention_mask = None
-
-            negative_prompt_embeds = self.text_encoder(
-                uncond_input_ids.to(device),
-                attention_mask=attention_mask,
-                clip_skip=clip_skip,
-            )
-            negative_prompt_embeds = negative_prompt_embeds[0]
-
-        if do_classifier_free_guidance:
-            # duplicate unconditional embeddings for each generation per prompt, using mps friendly method
-            seq_len = negative_prompt_embeds.shape[1]
-
-            negative_prompt_embeds = negative_prompt_embeds.to(dtype=self.text_encoder.dtype, device=device)
-
-            negative_prompt_embeds = negative_prompt_embeds.repeat(1, num_videos_per_prompt, 1)
-            negative_prompt_embeds = negative_prompt_embeds.view(
-                batch_size * num_videos_per_prompt, seq_len, -1
-            )
-
-            prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
-
-        return prompt_embeds
-
-    def load_ip_adapter(self, is_plus:bool=True, scale:float=1.0):
-        if self.ip_adapter is None:
-            img_enc_path = "data/models/CLIP-ViT-H-14-laion2B-s32B-b79K"
-
-            if is_plus:
-                self.ip_adapter = IPAdapterPlus(self, img_enc_path, "data/models/IP-Adapter/models/ip-adapter-plus_sd15.bin", self.device, 16)
-            else:
-                self.ip_adapter = IPAdapter(self, img_enc_path, "data/models/IP-Adapter/models/ip-adapter_sd15.bin", self.device, 4)
-            self.ip_adapter.set_scale(scale)
-
-    def unload_ip_adapater(self):
-        if self.ip_adapter:
-            self.ip_adapter.unload()
-            self.ip_adapter = None
-            torch.cuda.empty_cache()
-
-    def decode_latents(self, latents: torch.Tensor):
-        video_length = latents.shape[2]
+    def decode_latents(self, latents: torch.Tensor, decode_batch_size: int = 8):
         latents = 1 / self.vae.config.scaling_factor * latents
+
+        batch_size, channels, num_frames, height, width = latents.shape
         latents = rearrange(latents, "b c f h w -> (b f) c h w")
+
         # video = self.vae.decode(latents).sample
+
         video = []
-        for frame_idx in range(latents.shape[0]):
-            video.append(
-                self.vae.decode(latents[frame_idx : frame_idx + 1].to(self.vae.device, self.vae.dtype)).sample
-            )
+        for i in range(0, batch_size * num_frames, decode_batch_size):
+            # print(f"Decoding Latent Batch {i}")
+            batch_latents = latents[i : i + decode_batch_size]
+            batch_video = self.vae.decode(batch_latents.to(self.vae.device, self.vae.dtype)).sample
+            video.append(batch_video)
+        # for frame_idx in range(latents.shape[0]):
+        #     video.append(
+        #         self.vae.decode(latents[frame_idx : frame_idx + 1].to(self.vae.device, self.vae.dtype)).sample
+        #     )
+
         video = torch.cat(video)
-        video = rearrange(video, "(b f) c h w -> b c f h w", f=video_length)
+        video = rearrange(video, "(b f) c h w -> b c f h w", f=num_frames)
+
         video = (video / 2 + 0.5).clamp(0, 1)
         # we always cast to float32 as this does not cause significant overhead and is compatible with bfloa16
         video = video.cpu().float().numpy()
@@ -482,7 +203,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         num_videos_per_prompt: Optional[int] = 1,
         eta: float = 0.0,
         generator: Optional[Union[torch.Generator, list[torch.Generator]]] = None,
-        latents: Optional[torch.FloatTensor] = None,
         prompt_embeds: Optional[torch.FloatTensor] = None,
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
         output_type: Optional[str] = "tensor",
@@ -500,8 +220,11 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         neg_image_embeds: Optional[torch.FloatTensor] = None,
         image_embed_frames: list[int] = [],
         is_single_prompt_mode: bool = False,
+        num_partitions: int = 2,
         **kwargs,
     ):
+        num_inference_steps = context_frames * num_partitions # force number of inference steps to be size of queue
+
         if prompt is None and prompt_map is None:
             raise ValueError("Must provide a prompt or a prompt map.")
 
@@ -530,8 +253,6 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
 
         # Define call parameters
         batch_size = 1
-        if latents is not None:
-            batch_size = latents.shape[0]
         if isinstance(prompt, list):
             batch_size = len(prompt)
 
@@ -675,11 +396,7 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
 
             return get_tensor_interpolation_method()( im_prompt_embeds_map[key_prev], im_prompt_embeds_map[key_next], rate)
 
-        def get_frame_embeds(
-                context: List[int] = None,
-                video_length : int = 0
-                ):
-
+        def get_frame_embeds(context: List[int] = None, video_length : int = 0):
             neg = []
             pos = []
             for c in context:
@@ -729,86 +446,53 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
 
         # 5. Prepare latent variables
         num_channels_latents = self.unet.config.in_channels
-        latents = self.prepare_latents(
+        init_latents = self.prepare_latents(
             batch_size * num_videos_per_prompt,
             num_channels_latents,
-            video_length,
+            context_frames,
             height,
             width,
             prompt_embeds.dtype,
             latents_device,  # keep latents on cpu for sequential mode
             generator,
-            latents,
         )
 
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
-        # 6.5 - Infinite context loop shenanigans
-        context_scheduler = get_context_scheduler(context_schedule)
-        total_steps = get_total_steps(
-            context_scheduler,
-            timesteps,
-            num_inference_steps,
-            latents.shape[2],
-            context_frames,
-            context_stride,
-            context_overlap,
-            context_loop
-        )
-
-        # 7. Denoising loop
+        # 7. Denoising loops
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
-        with self.progress_bar(total=total_steps) as progress_bar:
+
+        print(f"timesteps {timesteps} warmup {num_warmup_steps}")
+        print(f"init_latents shape {init_latents.shape}")
+        print(f"video_length {video_length}")
+
+        lookahead_denoising = True
+        indices = list(range(context_frames * num_partitions))
+
+        # 7.1 First 16 frames done in the conventional way
+        with self.progress_bar(total=len(timesteps)) as progress_bar:
+            progress_bar.set_description("intial sampling")
+            context = list(range(context_frames))
             for i, t in enumerate(timesteps):
-
-                # latents shape torch.Size([1, 4, 24, 64, 64])
-                # noise pred shape torch.Size([2, 4, 24, 64, 64])
-                # Holder for model's noise prediciton
-                noise_pred = torch.zeros(
-                    (latents.shape[0] * (2 if do_classifier_free_guidance else 1), *latents.shape[1:]),
-                    device=latents.device,
-                    dtype=latents.dtype,
-                )
-
-                # Count of how many predictions we have for each frame
-                counter = torch.zeros(
-                    (1, 1, latents.shape[2], 1, 1), device=latents.device, dtype=latents.dtype
-                )
-
-                for context in context_scheduler(
-                    i, num_inference_steps, latents.shape[2], context_frames, context_stride, context_overlap
-                ):
-                    # Get the latents corresponding to context window and expand them if doing cfg
-                    # latent model input torch.Size([2, 4, 16, 64, 64])
-                    latent_model_input = (latents[:, :, context].to(device).repeat(2 if do_classifier_free_guidance else 1, 1, 1, 1, 1)
-                    )
-
-                    # Let the noise scheduler scale the latents
-                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t).to(self.unet.device, self.unet.dtype)
-
-                    # Get the text and image embeds for this context
-                    cur_prompt = get_frame_embeds(context, latents.shape[2])
-                    print(f"cur_prompt {cur_prompt.shape}")
-                    print(f"input_latents {latent_model_input.shape}")
-                    # Predict the noise for each frame in this context at timestep t
-                    pred = self.unet(
-                        latent_model_input,
-                        t,
-                        encoder_hidden_states=cur_prompt,
-                        cross_attention_kwargs=cross_attention_kwargs,
-                        return_dict=False,
-                    )[0]
-                    pred = pred.to(dtype=latents.dtype, device=latents.device)
-
-                    # Add the predicted noise to any pre-existing predicitons
-                    noise_pred[:, :, context] = noise_pred[:, :, context] + pred
-                    # Count the predictions
-                    counter[:, :, context] = counter[:, :, context] + 1
-                    progress_bar.update()
-
-                # Average out any noise that we got more than one of
-                noise_pred = noise_pred / counter
+                # Expand the latents if doing cfg
+                # latent model input torch.Size([2, 4, 16, 64, 64])
+                latent_model_input = torch.cat([init_latents] * 2) if do_classifier_free_guidance else init_latents
+                # Let the noise scheduler scale the latents
+                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t).to(self.unet.device, self.unet.dtype)
+                # Get the text and image embeds for this context
+                cur_prompt = get_frame_embeds(context, init_latents.shape[2])
+                print(f"cur_prompt {cur_prompt.shape}")
+                print(f"input_latents {latent_model_input.shape}")
+                # Predict the noise for each frame in this context at timestep t
+                noise_pred = self.unet(
+                    latent_model_input,
+                    t, # timesteps[:timesteps.shape[0]//2].to(self.unet.device),
+                    encoder_hidden_states=cur_prompt,
+                    cross_attention_kwargs=cross_attention_kwargs,
+                    return_dict=False,
+                )[0]
+                noise_pred = noise_pred.to(dtype=init_latents.dtype, device=init_latents.device)
 
                 # Combine noise for cfg
                 if do_classifier_free_guidance:
@@ -816,27 +500,102 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                 # Update the latents with the noise prediction
-                latents = self.scheduler.step(
+                init_latents = self.scheduler.step(
                     model_output=noise_pred,
                     timestep=t,
-                    sample=latents.to(latents_device),
+                    sample=init_latents.to(latents_device),
                     **extra_step_kwargs,
                     return_dict=False,
                 )[0]
+                progress_bar.update()
 
-                # call the callback, if provided
-                if i == len(timesteps) - 1 or (
-                    (i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0
-                ):
-                    if callback is not None and i % callback_steps == 0:
-                        callback(i, t, latents)
+        video_out = torch.from_numpy(self.decode_latents(init_latents))
+        save_video(video_out, "test.mp4")
 
-        # Return latents if requested (this will never be a dict)
-        if not output_type == "latent":
-            video = self.decode_latents(latents)
-        else:
-            video = latents
+        # 7.2 FIFO Denoising
+        latents = prepare_fifo_latents(init_latents, self.scheduler, lookahead_denoising=lookahead_denoising)
+        if lookahead_denoising:
+            timesteps = torch.stack([timesteps[0]] * (context_frames // 2) + list(timesteps))
+            indices = [0] * (context_frames // 2) + list(indices)
 
+        video = []
+        for i in trange(video_length + num_inference_steps - context_frames, desc="fifo sampling"):
+            for rank in reversed(range(2 * num_partitions if lookahead_denoising else num_partitions)):
+                start_idx = rank*(context_frames // 2) if lookahead_denoising else rank*context_frames
+                midpoint_idx = start_idx + context_frames // 2
+                end_idx = start_idx + context_frames
+
+                t = timesteps[start_idx:end_idx]
+                idx = indices[start_idx:end_idx]
+
+                print(f"i {i} rank {rank} start_idx {start_idx} midpoint_idx {midpoint_idx} end_idx {end_idx} - {t} - {idx}")
+                input_latents = latents[:,:,start_idx:end_idx].clone()
+                print(f"latents {latents.shape}")
+                print(f"input_latents {input_latents.shape}")
+
+                # Get the latents corresponding to context window and expand them if doing cfg
+                # latent model input torch.Size([2, 4, 16, 64, 64])
+                input_latents = (input_latents.to(device).repeat(2 if do_classifier_free_guidance else 1, 1, 1, 1, 1))
+                # Let the noise scheduler scale the latents
+                input_latents = self.scheduler.scale_model_input(input_latents, t).to(self.unet.device, self.unet.dtype)
+
+                # NB: THIS IS WRONG
+                cur_prompt = get_frame_embeds(idx, latents.shape[2]).to(self.unet.device, self.unet.dtype)
+                print(f"cur_prompt {cur_prompt.shape}")
+
+                # UNET
+                noise_pred = self.unet(
+                        input_latents,
+                        t.to(self.unet.device),
+                        encoder_hidden_states=cur_prompt,
+                        cross_attention_kwargs=cross_attention_kwargs,
+                        return_dict=False,
+                    )[0]
+                noise_pred = noise_pred.to(dtype=latents.dtype, device=latents.device)
+
+                # Combine noise for cfg
+                if do_classifier_free_guidance:
+                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+                print(f"noise pred {noise_pred.shape}")
+                print(f"noise pred slice {noise_pred[:, :, [0], :, :].shape}")
+                # Update the latents with the noise prediction
+                output_latents = []
+                for j, t_j in enumerate(t):
+                    print(f"timestep {t_j}")
+                    output_latents.append(
+                        self.scheduler.step(
+                            model_output=noise_pred[:, :, [j], :, :],
+                            timestep=t_j,
+                            sample=latents[:, :, [start_idx + j], :, :].to(latents_device),
+                            **extra_step_kwargs,
+                            return_dict=False,
+                        )[0]
+                    )
+                print(f"output_latents list {output_latents[0].shape}")
+                output_latents = torch.cat(output_latents, dim=2)
+                print(f"output latents {output_latents.shape}")
+
+                if lookahead_denoising:
+                    latents[:,:,midpoint_idx:end_idx] = output_latents[:,:,-(context_frames//2):]
+                else:
+                    latents[:,:,start_idx:end_idx] = output_latents
+                del output_latents
+
+            first_frame_idx = context_frames // 2 if lookahead_denoising else 0
+            finished_latent = latents[:,:,[first_frame_idx]]
+            if not output_type == "latent":
+                decoded_frame = self.decode_latents(finished_latent, decode_batch_size=1)
+                video.append(decoded_frame)
+            else:
+                video.append(finished_latent)
+            print(f"Video length {len(video)}")
+            # Shift latents along in the queue
+            latents = shift_latents(latents)
+
+        video = np.concatenate(video, axis=2)
+        print(f"video {video.shape}")
         # Convert to tensor
         if output_type == "tensor":
             video = torch.from_numpy(video)

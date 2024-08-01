@@ -14,6 +14,7 @@ from animatediff import get_dir
 from animatediff.models.clip import CLIPSkipTextModel
 from animatediff.models.unet import UNet3DConditionModel
 from animatediff.pipelines import AnimationPipeline, load_text_embeddings
+from animatediff.pipelines.fifo import FifoPipeline
 from animatediff.schedulers import get_scheduler
 from animatediff.settings import InferenceConfig, ModelConfig
 from animatediff.utils.model import (ensure_motion_modules,
@@ -123,7 +124,8 @@ def create_pipeline(
     # I'll deal with LoRA later...
 
     logger.info("Creating AnimationPipeline...")
-    pipeline = AnimationPipeline(
+    pipeline = FifoPipeline(
+    # pipeline = AnimationPipeline(
         vae=vae,
         text_encoder=text_encoder,
         tokenizer=tokenizer,

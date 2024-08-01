@@ -13,6 +13,7 @@ from diffusers.models.attention_processor import AttentionProcessor
 from diffusers.models.embeddings import TimestepEmbedding, Timesteps
 from diffusers.utils import (SAFETENSORS_WEIGHTS_NAME, WEIGHTS_NAME,
                              BaseOutput, logging)
+from einops import repeat
 from safetensors.torch import load_file
 from torch import Tensor, nn
 
@@ -382,9 +383,12 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             timesteps = timesteps[None].to(sample.device)
 
         # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
-        timesteps = timesteps.expand(sample.shape[0])
+        print(f"Sample {sample.shape} Timesteps {timesteps.shape}")
+        timesteps = repeat(timesteps, 'n -> (n r)', r=sample.shape[0])
+        print(f"UNET time {timesteps.shape}")
 
         t_emb = self.time_proj(timesteps)
+        print(f"t_emb {t_emb.shape}")
 
         # `Timesteps` does not contain any weights and will always return f32 tensors
         # but time_embedding might actually be running in fp16. so we need to cast here.
@@ -392,6 +396,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         t_emb = t_emb.to(dtype=sample.dtype)
 
         emb = self.time_embedding(t_emb)
+        print(f"emb {emb.shape}")
 
         if self.class_embedding is not None:
             if class_labels is None:
@@ -414,6 +419,8 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         # 2. pre-process
         sample = self.conv_in(sample)
 
+        print(f"Preprocessed {sample.shape} - enc hidden {encoder_hidden_states.shape}")
+
         # 3. down
         down_block_res_samples = (sample,)
         for downsample_block in self.down_blocks:
@@ -432,7 +439,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
                 )
 
             down_block_res_samples = down_block_res_samples + res_samples
-
+        print(f"down {sample.shape}")
         # 4. mid
         if self.mid_block is not None:
             sample = self.mid_block(
@@ -442,7 +449,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
                 attention_mask=attention_mask,
                 cross_attention_kwargs=cross_attention_kwargs,
             )
-
+        print(f"mid {sample.shape}")
         # up
         for i, upsample_block in enumerate(self.up_blocks):
             is_final_block = i == len(self.up_blocks) - 1
@@ -472,12 +479,12 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
                     upsample_size=upsample_size,
                     encoder_hidden_states=encoder_hidden_states,
                 )
-
+        print(f"up {sample.shape}")
         # post-process
         sample = self.conv_norm_out(sample)
         sample = self.conv_act(sample)
         sample = self.conv_out(sample)
-
+        print(f"post {sample.shape}")
         if not return_dict:
             return (sample,)
 

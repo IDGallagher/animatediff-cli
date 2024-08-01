@@ -246,3 +246,4 @@ outputs
 wandb
 tmp
 /checkpoints/
+test.mp4
