@@ -36,30 +36,69 @@ from ip_adapter import IPAdapter, IPAdapterPlus
 
 logger = logging.getLogger(__name__)
 
-def prepare_fifo_latents(video, scheduler, lookahead_denoising:bool=True):
+# def prepare_fifo_latents(video, scheduler, lookahead_denoising:bool=True):
+#     latents_list = []
+#     context_frames = video.shape[2]
+#     num_inference_steps = scheduler.timesteps.shape[0]
+#     timesteps = torch.flip(scheduler.timesteps, dims=[0])
+#     if lookahead_denoising:
+#         for i in range(context_frames // 2):
+#             noise = torch.randn_like(video[:,:,[0]])
+#             latents = scheduler.add_noise(video[:,:,[0]], noise, timesteps[0])
+#             latents_list.append(latents)
+
+#     for i in range(num_inference_steps):
+#         frame_idx = max(0, i-(num_inference_steps - context_frames))
+#         noise = torch.randn_like(video[:,:,[frame_idx]])
+#         latents = scheduler.add_noise(video[:,:,[frame_idx]], noise, timesteps[i])
+#         latents_list.append(latents)
+
+#     return torch.cat(latents_list, dim=2)
+
+def prepare_fifo_latents(video, scheduler, lookahead_denoising:bool=False):
     latents_list = []
     context_frames = video.shape[2]
     num_inference_steps = scheduler.timesteps.shape[0]
     if lookahead_denoising:
         for i in range(context_frames // 2):
-            noise = torch.randn_like(video[:,:,[0]])
-            latents = scheduler.add_noise(video[:,:,[0]], noise, scheduler.timesteps[0])
+            t = scheduler.timesteps[-1]
+            alpha = scheduler.alphas_cumprod[t]
+            beta = 1 - alpha
+            x_0 = video[:,:,[0]]
+            latents = alpha**(0.5) * x_0 + beta**(0.5) * torch.randn_like(x_0)
+            latents_list.append(latents)
+        for i in range(num_inference_steps):
+            t = scheduler.timesteps[num_inference_steps-i-1]
+            alpha = scheduler.alphas_cumprod[t]
+            beta = 1 - alpha
+            frame_idx = max(0, i-(num_inference_steps - context_frames))
+            x_0 = video[:,:,[frame_idx]]
+
+            latents = alpha**(0.5) * x_0 + beta**(0.5) * torch.randn_like(x_0)
+            latents_list.append(latents)
+    else:
+        for i in range(num_inference_steps):
+
+            t = scheduler.timesteps[num_inference_steps-i-1]
+            alpha = scheduler.alphas_cumprod[t]
+            beta = 1 - alpha
+
+            frame_idx = max(0, i-(num_inference_steps - context_frames))
+            x_0 = video[:,:,[frame_idx]]
+            print(f"{i} - t {t} frame_idx {frame_idx} x0 {x_0.shape}")
+            latents = alpha**(0.5) * x_0 + beta**(0.5) * torch.randn_like(x_0)
             latents_list.append(latents)
 
-    for i in range(num_inference_steps):
-        frame_idx = max(0, i-(num_inference_steps - context_frames))
-        noise = torch.randn_like(video[:,:,[frame_idx]])
-        latents = scheduler.add_noise(video[:,:,[frame_idx]], noise, scheduler.timesteps[i])
-        latents_list.append(latents)
+    latents = torch.cat(latents_list, dim=2)
 
-    return torch.cat(latents_list, dim=2)
+    return latents
 
-def shift_latents(latents):
+def shift_latents(latents, scheduler):
     # shift latents
     latents[:,:,:-1] = latents[:,:,1:].clone()
 
     # add new noise to the last frame
-    latents[:,:,-1] = torch.randn_like(latents[:,:,-1])
+    latents[:,:,-1] = torch.randn_like(latents[:,:,-1]) * scheduler.init_noise_sigma
 
     return latents
 
@@ -201,7 +240,7 @@ class FifoPipeline(AnimationPipeline):
         negative_prompt: Optional[Union[str, list[str]]] = None,
         video_length: int = ...,
         num_videos_per_prompt: Optional[int] = 1,
-        eta: float = 0.0,
+        eta: float = 0.5,
         generator: Optional[Union[torch.Generator, list[torch.Generator]]] = None,
         prompt_embeds: Optional[torch.FloatTensor] = None,
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
@@ -220,7 +259,7 @@ class FifoPipeline(AnimationPipeline):
         neg_image_embeds: Optional[torch.FloatTensor] = None,
         image_embed_frames: list[int] = [],
         is_single_prompt_mode: bool = False,
-        num_partitions: int = 2,
+        num_partitions: int = 4,
         **kwargs,
     ):
         num_inference_steps = context_frames * num_partitions # force number of inference steps to be size of queue
@@ -469,12 +508,14 @@ class FifoPipeline(AnimationPipeline):
 
         lookahead_denoising = True
         indices = list(range(context_frames * num_partitions))
+        print(f"Init indicies {indices}")
 
         # 7.1 First 16 frames done in the conventional way
         with self.progress_bar(total=len(timesteps)) as progress_bar:
             progress_bar.set_description("intial sampling")
             context = list(range(context_frames))
             for i, t in enumerate(timesteps):
+                print(f"timestep {t}")
                 # Expand the latents if doing cfg
                 # latent model input torch.Size([2, 4, 16, 64, 64])
                 latent_model_input = torch.cat([init_latents] * 2) if do_classifier_free_guidance else init_latents
@@ -487,7 +528,7 @@ class FifoPipeline(AnimationPipeline):
                 # Predict the noise for each frame in this context at timestep t
                 noise_pred = self.unet(
                     latent_model_input,
-                    t, # timesteps[:timesteps.shape[0]//2].to(self.unet.device),
+                    t, # torch.arange(t, t + 64, step=4, device=self.unet.device)
                     encoder_hidden_states=cur_prompt,
                     cross_attention_kwargs=cross_attention_kwargs,
                     return_dict=False,
@@ -500,13 +541,18 @@ class FifoPipeline(AnimationPipeline):
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                 # Update the latents with the noise prediction
-                init_latents = self.scheduler.step(
-                    model_output=noise_pred,
-                    timestep=t,
-                    sample=init_latents.to(latents_device),
-                    **extra_step_kwargs,
-                    return_dict=False,
-                )[0]
+                output_latents = []
+                for j, t_j in enumerate(context):
+                    output_latents.append(
+                        self.scheduler.step(
+                            model_output=noise_pred[:, :, [j], :, :],
+                            timestep=t,
+                            sample=init_latents[:, :, [j], :, :].to(latents_device),
+                            **extra_step_kwargs,
+                            return_dict=False,
+                        )[0]
+                    )
+                init_latents = torch.cat(output_latents, dim=2)
                 progress_bar.update()
 
         video_out = torch.from_numpy(self.decode_latents(init_latents))
@@ -514,12 +560,24 @@ class FifoPipeline(AnimationPipeline):
 
         # 7.2 FIFO Denoising
         latents = prepare_fifo_latents(init_latents, self.scheduler, lookahead_denoising=lookahead_denoising)
+
+        video_out = torch.from_numpy(self.decode_latents(latents))
+        save_video(video_out, "prepared.mp4")
+
+        self.scheduler.set_timesteps(num_inference_steps, device=latents_device)
+        timesteps = self.scheduler.timesteps
+
+        timesteps = torch.flip(timesteps, dims=[0])
         if lookahead_denoising:
-            timesteps = torch.stack([timesteps[0]] * (context_frames // 2) + list(timesteps))
+            timesteps = torch.cat([torch.full((context_frames//2,), timesteps[0]).to(timesteps.device), timesteps])
+            # timesteps = torch.cat([timesteps[0]] * (context_frames // 2) + list(timesteps))
             indices = [0] * (context_frames // 2) + list(indices)
 
         video = []
         for i in trange(video_length + num_inference_steps - context_frames, desc="fifo sampling"):
+            context = list(range(i, i + context_frames))
+            context = [min(video_length - 1, max(0, x - context_frames)) for x in context]
+            print(f"context {context}")
             for rank in reversed(range(2 * num_partitions if lookahead_denoising else num_partitions)):
                 start_idx = rank*(context_frames // 2) if lookahead_denoising else rank*context_frames
                 midpoint_idx = start_idx + context_frames // 2
@@ -535,12 +593,11 @@ class FifoPipeline(AnimationPipeline):
 
                 # Get the latents corresponding to context window and expand them if doing cfg
                 # latent model input torch.Size([2, 4, 16, 64, 64])
-                input_latents = (input_latents.to(device).repeat(2 if do_classifier_free_guidance else 1, 1, 1, 1, 1))
+                input_latents = torch.cat([input_latents] * 2) if do_classifier_free_guidance else input_latents
                 # Let the noise scheduler scale the latents
                 input_latents = self.scheduler.scale_model_input(input_latents, t).to(self.unet.device, self.unet.dtype)
 
-                # NB: THIS IS WRONG
-                cur_prompt = get_frame_embeds(idx, latents.shape[2]).to(self.unet.device, self.unet.dtype)
+                cur_prompt = get_frame_embeds(context, video_length).to(self.unet.device, self.unet.dtype)
                 print(f"cur_prompt {cur_prompt.shape}")
 
                 # UNET
@@ -569,9 +626,8 @@ class FifoPipeline(AnimationPipeline):
                             model_output=noise_pred[:, :, [j], :, :],
                             timestep=t_j,
                             sample=latents[:, :, [start_idx + j], :, :].to(latents_device),
-                            **extra_step_kwargs,
-                            return_dict=False,
-                        )[0]
+                            **extra_step_kwargs
+                        ).prev_sample
                     )
                 print(f"output_latents list {output_latents[0].shape}")
                 output_latents = torch.cat(output_latents, dim=2)
@@ -584,7 +640,7 @@ class FifoPipeline(AnimationPipeline):
                 del output_latents
 
             first_frame_idx = context_frames // 2 if lookahead_denoising else 0
-            finished_latent = latents[:,:,[first_frame_idx]]
+            finished_latent = latents[:,:,[first_frame_idx],...]
             if not output_type == "latent":
                 decoded_frame = self.decode_latents(finished_latent, decode_batch_size=1)
                 video.append(decoded_frame)
@@ -592,9 +648,9 @@ class FifoPipeline(AnimationPipeline):
                 video.append(finished_latent)
             print(f"Video length {len(video)}")
             # Shift latents along in the queue
-            latents = shift_latents(latents)
+            latents = shift_latents(latents, self.scheduler)
 
-        video = np.concatenate(video, axis=2)
+        video = np.concatenate(video[-video_length:], axis=2)
         print(f"video {video.shape}")
         # Convert to tensor
         if output_type == "tensor":
