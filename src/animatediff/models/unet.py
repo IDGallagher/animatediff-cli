@@ -13,7 +13,7 @@ from diffusers.models.attention_processor import AttentionProcessor
 from diffusers.models.embeddings import TimestepEmbedding, Timesteps
 from diffusers.utils import (SAFETENSORS_WEIGHTS_NAME, WEIGHTS_NAME,
                              BaseOutput, logging)
-from einops import repeat
+from einops import rearrange, repeat
 from safetensors.torch import load_file
 from torch import Tensor, nn
 
@@ -383,9 +383,16 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             timesteps = timesteps[None].to(sample.device)
 
         # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
-        # print(f"Sample {sample.shape} Timesteps {timesteps.shape}")
-        timesteps = repeat(timesteps, 'n -> (r n)', r=sample.shape[0])
-        # print(f"UNET time {timesteps}")
+        print(f"Sample {sample.shape} Timesteps {timesteps.shape}")
+        # timesteps = timesteps.expand(sample.shape[0])
+
+        if timesteps.shape[0] < sample.shape[0]:
+            timesteps = repeat(timesteps, 'n ... -> (repeat n) ...', repeat=sample.shape[0] // timesteps.shape[0])
+
+        if len(timesteps.shape) > 1:
+            timesteps = rearrange(timesteps, 'n d -> (n d)')
+        # timesteps = repeat(timesteps, 'n -> (r n)', r=sample.shape[0])
+        print(f"UNET time {timesteps}")
 
         t_emb = self.time_proj(timesteps)
         # print(f"t_emb {t_emb.shape}")

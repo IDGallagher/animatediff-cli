@@ -139,8 +139,8 @@ def train_ad(
     if not image_finetune:
         unet = UNet3DConditionModel.from_pretrained_2d(
             sd_model_path, subfolder="unet",
-            # motion_module_path="data/models/motion-module/mm_sd_v15_v2.safetensors",
-            motion_module_path="data/models/motion-module/mm_sd_v15_v2.ckpt",
+            motion_module_path="data/models/motion-module/mm_sd_v15_v2.safetensors",
+            # motion_module_path="data/models/motion-module/mm_sd_v15_v2.ckpt",
             unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs)
         )
     else:

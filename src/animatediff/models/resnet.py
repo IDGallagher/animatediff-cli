@@ -179,10 +179,10 @@ class ResnetBlock3D(nn.Module):
 
         if temb is not None:
             temb = self.time_emb_proj(self.nonlinearity(temb))
-            # print(f"Pre expand {temb.shape}")
-            temb = rearrange(temb, '(b f) c -> b c f 1 1', f=max(temb.shape[0] // 2, 1))
+            print(f"Pre expand {temb.shape}")
+            temb = rearrange(temb, '(b f) c -> b c f 1 1', f=max(temb.shape[0] // hidden_states.shape[0], 1))
 
-        # print(f"resnet hidden {hidden_states.shape} temb {temb.shape}")
+        print(f"resnet hidden {hidden_states.shape} temb {temb.shape}")
 
         if temb is not None and self.time_embedding_norm == "default":
             hidden_states = hidden_states + temb

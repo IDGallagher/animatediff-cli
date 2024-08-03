@@ -603,7 +603,7 @@ class FifoPipeline(AnimationPipeline):
                 # UNET
                 noise_pred = self.unet(
                         input_latents,
-                        t.to(self.unet.device),
+                        rearrange(t, 'n -> 1 n').to(self.unet.device),
                         encoder_hidden_states=cur_prompt,
                         cross_attention_kwargs=cross_attention_kwargs,
                         return_dict=False,

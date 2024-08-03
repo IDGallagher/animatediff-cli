@@ -418,7 +418,7 @@ class CrossAttnDownBlock3D(nn.Module):
                     )
 
             else:
-                print(f"downblock hidden - hidden {hidden_states.shape} - temp {temb.shape} enc hidden {encoder_hidden_states.shape}")
+                # print(f"downblock hidden - hidden {hidden_states.shape} - temp {temb.shape} enc hidden {encoder_hidden_states.shape}")
                 hidden_states = resnet(hidden_states, temb)
                 hidden_states = attn(
                     hidden_states,
