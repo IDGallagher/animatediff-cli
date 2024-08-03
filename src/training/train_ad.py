@@ -139,7 +139,8 @@ def train_ad(
     if not image_finetune:
         unet = UNet3DConditionModel.from_pretrained_2d(
             sd_model_path, subfolder="unet",
-            motion_module_path="data/models/motion-module/mm_sd_v15_v2.safetensors",
+            # motion_module_path="data/models/motion-module/mm_sd_v15_v2.safetensors",
+            motion_module_path="data/models/motion-module/mm_sd_v15_v2.ckpt",
             unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs)
         )
     else:
@@ -372,17 +373,21 @@ def train_ad(
                 latents = latents * 0.18215
 
             zero_rank_print("Sample noise", LogType.debug)
+
             # Sample noise that we'll add to the latents
             noise = torch.randn_like(latents)
-            bsz = latents.shape[0]
+            bsz, _, num_frames, _, _ = latents.shape
 
+            zero_rank_print(f"noise {noise.shape}", LogType.debug)
             # Sample a random timestep for each video
             timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=device_id)
             timesteps = timesteps.long()
 
+            zero_rank_print(f"timesteps {timesteps.shape}", LogType.debug)
             # Add noise to the latents according to the noise magnitude at each timestep
             # (this is the forward diffusion process)
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+            zero_rank_print(f"noisy_latents {noisy_latents.shape}", LogType.debug)
 
             zero_rank_print("Get text embedding", LogType.debug)
             # Get the text embedding for conditioning

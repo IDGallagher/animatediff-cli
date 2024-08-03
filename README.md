@@ -12,6 +12,8 @@ python ./src/animatediff/__main__.py generate -c config/prompts/ValidationCow.js
 python ./src/animatediff/__main__.py train motionpredictor -w -c config/training/training_mp.yaml
 python ./src/animatediff/__main__.py train animatediff -w -c config/training/training_ad.yaml
 
+python ./src/animatediff/__main__.py filter --input /workspace/animatediff-cli/training_ad-2024-07-30T17-08-26_animatediff_epoch_3.pth --output motion_module.pth
+
 
 
 

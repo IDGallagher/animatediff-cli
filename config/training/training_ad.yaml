@@ -60,7 +60,7 @@ unet_checkpoint_path: ""
 learning_rate:    1.e-4
 train_batch_size: 1
 gradient_accumulation_steps: 10
-num_workers: 20
+num_workers: 1
 
 epoch_size:           100
 num_epochs:           10

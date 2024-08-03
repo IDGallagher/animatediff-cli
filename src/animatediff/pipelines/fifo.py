@@ -259,7 +259,7 @@ class FifoPipeline(AnimationPipeline):
         neg_image_embeds: Optional[torch.FloatTensor] = None,
         image_embed_frames: list[int] = [],
         is_single_prompt_mode: bool = False,
-        num_partitions: int = 4,
+        num_partitions: int = 2,
         **kwargs,
     ):
         num_inference_steps = context_frames * num_partitions # force number of inference steps to be size of queue
