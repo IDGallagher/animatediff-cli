@@ -18,11 +18,9 @@ from torchaudio.io import StreamReader
 from torchaudio.utils import ffmpeg_utils
 from transformers import CLIPImageProcessor
 
-sys.path.append("./webdataset/")
-import wids as wids  # type: ignore
-
 import webdataset as wds
 from training.utils import LogType, zero_rank_partial
+from webdataset.handlers import warn_and_continue
 
 decord.bridge.set_bridge('torch')
 
@@ -100,20 +98,20 @@ def make_sample(sample, sample_size=256, target_fps=8, sample_n_frames=16, is_im
         # Force garbage collection
         gc.collect()
 
-    return pixel_values, caption
+    return pixel_values, caption, start_time
 
-def make_dataloader(shards, batch_size=1, num_workers=1, epoch_size=1000, **kwargs):
+def make_dataloader(shards, batch_size, num_workers, epoch_size, **kwargs):
     assert(epoch_size % batch_size == 0, f"Make epoch_size {epoch_size} divisible by batch_size {batch_size}")
 
-    dataset = wds.WebDataset(shards, resampled=True, nodesplitter=wds.split_by_node) # , cache_dir="./tmp"
-    dataset = dataset.map(partial(make_sample, **kwargs))
+    dataset = wds.WebDataset(shards, handler=warn_and_continue, resampled=True, nodesplitter=wds.split_by_node) # , cache_dir="./tmp"
+    dataset = dataset.shuffle(1000).map(partial(make_sample, **kwargs), handler=warn_and_continue)
 
     # For IterableDataset objects, the batching needs to happen in the dataset.
     dataset = dataset.batched(batch_size)
     dataloader = wds.WebLoader(dataset, batch_size=None, num_workers=num_workers)
 
     # We unbatch, shuffle, and rebatch to mix samples from different workers.
-    dataloader = dataloader.unbatched().batched(batch_size)
+    dataloader = dataloader.unbatched().shuffle(1000).batched(batch_size)
 
     # A resampled dataset is infinite size, but we can recreate a fixed epoch length.
     dataloader = dataloader.with_epoch(epoch_size // batch_size)

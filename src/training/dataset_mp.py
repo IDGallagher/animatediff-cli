@@ -104,7 +104,7 @@ def make_sample(sample, sample_size=224, target_fps=8, sample_n_frames=16, is_im
 
     return pixel_values, caption
 
-def make_dataloader(shards, batch_size=1, num_workers=1, epoch_size=1000, **kwargs):
+def make_dataloader(shards, batch_size, num_workers, epoch_size, **kwargs):
     assert(epoch_size % batch_size == 0, f"Make epoch_size {epoch_size} divisible by batch_size {batch_size}")
 
     dataset = wds.WebDataset(shards, resampled=True, nodesplitter=wds.split_by_node) # , cache_dir="./tmp"

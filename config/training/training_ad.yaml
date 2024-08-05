@@ -29,8 +29,9 @@ noise_scheduler_kwargs:
 
 train_data:
   # shards:          "s3://webvid-10m/val-shards.json"
+  shards:            "pipe:aws s3 cp s3://webvid-10m/train/{00000..10727}.tar -"
   # shards:            "pipe:aws s3 cp s3://webvid-10m/val/{00000..00004}.tar -"
-  shards:            "pipe:aws s3 cp s3://webvid-10m/cow_test/00000.tar -"
+  # shards:            "pipe:aws s3 cp s3://webvid-10m/cow_test/00000.tar -"
 
   # csv_path:        "./data/test.csv"
   # video_folder:    "./data/videos"
@@ -40,9 +41,9 @@ train_data:
 
 validation_data:
   prompts:
-    - "Two cows in a field eating hay"
-    # - "b&w photo of 42 y.o man in black clothes, bald, face, half body, body, high detailed skin, skin pores, coastline, overcast weather, wind, waves, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3"
-    # - "close up photo of a rabbit, forest, haze, halation, bloom, dramatic atmosphere, centred, rule of thirds, 200mm 1.4f macro shot"
+    - "Angry porcupine fishe swim on the reef in search of food. amazing, beautiful underwater marine life world of sea creatures in red sea. scuba diving and tourism"
+    - "b&w photo of 42 y.o man in black clothes, bald, face, half body, body, high detailed skin, skin pores, coastline, overcast weather, wind, waves, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3"
+    - "close up photo of a rabbit, forest, haze, halation, bloom, dramatic atmosphere, centred, rule of thirds, 200mm 1.4f macro shot"
     # - photo of coastline, rocks, storm weather, wind, waves, lightning, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3"
     # - "night, b&w photo of old house, post apocalypse, forest, storm weather, wind, rocks, 8k uhd, dslr, soft lighting, high quality, film grain"
   num_inference_steps: 25
@@ -59,11 +60,11 @@ unet_checkpoint_path: ""
 
 learning_rate:    1.e-4
 train_batch_size: 1
-gradient_accumulation_steps: 10
-num_workers: 1
+gradient_accumulation_steps: 30
+num_workers: 20
 
-epoch_size:           100
-num_epochs:           10
+epoch_size:           10000000
+num_epochs:           1
 checkpointing_epochs: -1
 checkpointing_steps:  100
 

@@ -36,62 +36,65 @@ from ip_adapter import IPAdapter, IPAdapterPlus
 
 logger = logging.getLogger(__name__)
 
-# def prepare_fifo_latents(video, scheduler, lookahead_denoising:bool=True):
-#     latents_list = []
-#     context_frames = video.shape[2]
-#     num_inference_steps = scheduler.timesteps.shape[0]
-#     timesteps = torch.flip(scheduler.timesteps, dims=[0])
-#     if lookahead_denoising:
-#         for i in range(context_frames // 2):
-#             noise = torch.randn_like(video[:,:,[0]])
-#             latents = scheduler.add_noise(video[:,:,[0]], noise, timesteps[0])
-#             latents_list.append(latents)
-
-#     for i in range(num_inference_steps):
-#         frame_idx = max(0, i-(num_inference_steps - context_frames))
-#         noise = torch.randn_like(video[:,:,[frame_idx]])
-#         latents = scheduler.add_noise(video[:,:,[frame_idx]], noise, timesteps[i])
-#         latents_list.append(latents)
-
-#     return torch.cat(latents_list, dim=2)
-
-def prepare_fifo_latents(video, scheduler, lookahead_denoising:bool=False):
+def prepare_fifo_latents(video, scheduler, lookahead_denoising:bool=True):
     latents_list = []
     context_frames = video.shape[2]
     num_inference_steps = scheduler.timesteps.shape[0]
+
+    timesteps = scheduler.timesteps
+    timesteps = torch.flip(timesteps, dims=[0])
+
     if lookahead_denoising:
         for i in range(context_frames // 2):
-            t = scheduler.timesteps[-1]
-            alpha = scheduler.alphas_cumprod[t]
-            beta = 1 - alpha
-            x_0 = video[:,:,[0]]
-            latents = alpha**(0.5) * x_0 + beta**(0.5) * torch.randn_like(x_0)
-            latents_list.append(latents)
-        for i in range(num_inference_steps):
-            t = scheduler.timesteps[num_inference_steps-i-1]
-            alpha = scheduler.alphas_cumprod[t]
-            beta = 1 - alpha
-            frame_idx = max(0, i-(num_inference_steps - context_frames))
-            x_0 = video[:,:,[frame_idx]]
-
-            latents = alpha**(0.5) * x_0 + beta**(0.5) * torch.randn_like(x_0)
-            latents_list.append(latents)
-    else:
-        for i in range(num_inference_steps):
-
-            t = scheduler.timesteps[num_inference_steps-i-1]
-            alpha = scheduler.alphas_cumprod[t]
-            beta = 1 - alpha
-
-            frame_idx = max(0, i-(num_inference_steps - context_frames))
-            x_0 = video[:,:,[frame_idx]]
-            print(f"{i} - t {t} frame_idx {frame_idx} x0 {x_0.shape}")
-            latents = alpha**(0.5) * x_0 + beta**(0.5) * torch.randn_like(x_0)
+            noise = torch.randn_like(video[:,:,[0]])
+            latents = scheduler.add_noise(video[:,:,[0]], noise, timesteps[0])
             latents_list.append(latents)
 
-    latents = torch.cat(latents_list, dim=2)
+    for i in range(num_inference_steps):
+        frame_idx = max(0, i-(num_inference_steps - context_frames))
+        noise = torch.randn_like(video[:,:,[frame_idx]])
+        latents = scheduler.add_noise(video[:,:,[frame_idx]], noise, timesteps[i])
+        latents_list.append(latents)
 
-    return latents
+    return torch.cat(latents_list, dim=2)
+
+# def prepare_fifo_latents(video, scheduler, lookahead_denoising:bool=False):
+#     latents_list = []
+#     context_frames = video.shape[2]
+#     num_inference_steps = scheduler.timesteps.shape[0]
+#     if lookahead_denoising:
+#         for i in range(context_frames // 2):
+#             t = scheduler.timesteps[-1]
+#             alpha = scheduler.alphas_cumprod[t]
+#             beta = 1 - alpha
+#             x_0 = video[:,:,[0]]
+#             latents = alpha**(0.5) * x_0 + beta**(0.5) * torch.randn_like(x_0)
+#             latents_list.append(latents)
+#         for i in range(num_inference_steps):
+#             t = scheduler.timesteps[num_inference_steps-i-1]
+#             alpha = scheduler.alphas_cumprod[t]
+#             beta = 1 - alpha
+#             frame_idx = max(0, i-(num_inference_steps - context_frames))
+#             x_0 = video[:,:,[frame_idx]]
+
+#             latents = alpha**(0.5) * x_0 + beta**(0.5) * torch.randn_like(x_0)
+#             latents_list.append(latents)
+#     else:
+#         for i in range(num_inference_steps):
+
+#             t = scheduler.timesteps[num_inference_steps-i-1]
+#             alpha = scheduler.alphas_cumprod[t]
+#             beta = 1 - alpha
+
+#             frame_idx = max(0, i-(num_inference_steps - context_frames))
+#             x_0 = video[:,:,[frame_idx]]
+#             print(f"{i} - t {t} frame_idx {frame_idx} x0 {x_0.shape}")
+#             latents = alpha**(0.5) * x_0 + beta**(0.5) * torch.randn_like(x_0)
+#             latents_list.append(latents)
+
+#     latents = torch.cat(latents_list, dim=2)
+
+#     return latents
 
 def shift_latents(latents, scheduler):
     # shift latents
@@ -566,8 +569,8 @@ class FifoPipeline(AnimationPipeline):
 
         self.scheduler.set_timesteps(num_inference_steps, device=latents_device)
         timesteps = self.scheduler.timesteps
-
         timesteps = torch.flip(timesteps, dims=[0])
+
         if lookahead_denoising:
             timesteps = torch.cat([torch.full((context_frames//2,), timesteps[0]).to(timesteps.device), timesteps])
             # timesteps = torch.cat([timesteps[0]] * (context_frames // 2) + list(timesteps))

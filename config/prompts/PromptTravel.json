@@ -1,0 +1,24 @@
+{
+  "name": "PromptTravel",
+  "base": "",
+  "path": "data/models/realisticVisionV60B1_v51VAE.safetensors",
+  "motion_module": "/workspace/animatediff-cli/val_rando_mm.pth",
+  "compile": false,
+  "seed": [
+    42
+  ],
+  "video_fps":  8,
+  "scheduler": "ddim",
+  "steps": 25,
+  "guidance_scale": 10,
+  "clip_skip": 1,
+  "prompts": [
+    {
+      "0":"A rooster sat on a fence singing",
+      "128":"A stressed looking business woman in her office with her head in her hands"
+    }
+  ],
+  "n_prompts": [
+    "semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, text, close up, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck"
+  ]
+}

@@ -208,7 +208,7 @@ def train_ad(
     vae = vae.to(device=device_id)
 
     # Get the training dataset
-    train_dataloader = make_dataloader(**train_data, batch_size=train_batch_size, num_workers=num_workers)
+    train_dataloader = make_dataloader(**train_data, batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size)
 
     # Get the training iteration
     # if max_train_steps == -1:
@@ -263,6 +263,50 @@ def train_ad(
         std = torch.tensor(SD).view(1, 1, 3, 1, 1).to(image.device)
         return (image/255.0 - mean) / std
 
+    def add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length):
+        latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
+        # Sample noise that we'll add to the latents
+        noise = torch.randn_like(latents)
+        timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (batch_size,), device=device_id).long()
+        noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+        return noise, noisy_latents, timesteps
+
+    def add_noise_random_timesteps(noise_scheduler, latents, batch_size, video_length):
+        # Sample noise that we'll add to the latents
+        noise = torch.randn_like(latents)
+        timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (batch_size * video_length,), device=device_id).long()
+        noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+        noisy_latents = rearrange(noisy_latents, "(b f) c h w -> b c f h w", f=video_length)
+        noise = rearrange(noise, "(b f) c h w -> b c f h w", f=video_length)
+        timesteps = rearrange(timesteps, '(b f) -> b f', f=video_length)
+        return noise, noisy_latents, timesteps
+
+    def add_noise_sequential_timesteps(noise_scheduler, latents, batch_size, video_length):
+        target_partitions = 2
+        target_steps = video_length * target_partitions #32
+
+        # Sample noise that we'll add to the latents
+        noise_scheduler.set_timesteps(target_steps)
+        timesteps = noise_scheduler.timesteps
+        timesteps = torch.flip(timesteps, dims=[0])
+        timesteps = torch.cat([torch.full((video_length//2,), timesteps[0]), timesteps])
+
+        rank = random.randint(0, 2 * target_partitions - 1)
+        start_idx = rank*(video_length // 2)
+        end_idx = start_idx + video_length
+        timesteps = timesteps[start_idx:end_idx].to(device_id).long()
+        print(f"timesteps {timesteps}")
+
+        noise = torch.randn_like(latents)
+        noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+        noisy_latents = rearrange(noisy_latents, "(b f) c h w -> b c f h w", f=video_length)
+        noise = rearrange(noise, "(b f) c h w -> b c f h w", f=video_length)
+        timesteps = rearrange(timesteps, '(b f) -> b f', f=video_length)
+
+        print(f"Timesteps {timesteps}")
+
+        return noise, noisy_latents, timesteps
+
     unet.train()
     for epoch in range(first_epoch, num_epochs):
         epoch_loss = 0
@@ -272,6 +316,7 @@ def train_ad(
 
             pixel_values = batch[0].to(device_id)
             texts = batch[1]
+            start_time = batch[2]
 
             pixel_values = normalize_and_rescale(pixel_values)
             # zero_rank_print(f"Pixel shape {pixel_values}")
@@ -357,6 +402,7 @@ def train_ad(
             zero_rank_print("Convert videos to latent space", LogType.debug)
             # Convert videos to latent space
             # pixel_values = batch["pixel_values"].to(device_id, dtype=vae_dtype, memory_format=model_memory_format)
+            batch_size = pixel_values.shape[0]
             video_length = pixel_values.shape[1]
             with torch.no_grad():
                 if not image_finetune:
@@ -364,7 +410,7 @@ def train_ad(
                     # pixel_values = pixel_values.to(device_id, dtype=vae_dtype, memory_format=model_memory_format)
                     latents = vae.encode(pixel_values).latent_dist
                     latents = latents.sample()
-                    latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
+                    # latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
                 else:
                     # pixel_values = pixel_values.to(device_id, dtype=vae_dtype, memory_format=model_memory_format)
                     latents = vae.encode(pixel_values).latent_dist
@@ -374,19 +420,12 @@ def train_ad(
 
             zero_rank_print("Sample noise", LogType.debug)
 
-            # Sample noise that we'll add to the latents
-            noise = torch.randn_like(latents)
-            bsz, _, num_frames, _, _ = latents.shape
+            # noise, noisy_latents, timesteps = add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length)
+            noise, noisy_latents, timesteps = add_noise_sequential_timesteps(noise_scheduler, latents, batch_size, video_length)
 
-            zero_rank_print(f"noise {noise.shape}", LogType.debug)
-            # Sample a random timestep for each video
-            timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=device_id)
-            timesteps = timesteps.long()
-
-            zero_rank_print(f"timesteps {timesteps.shape}", LogType.debug)
-            # Add noise to the latents according to the noise magnitude at each timestep
-            # (this is the forward diffusion process)
-            noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+            zero_rank_print(f"noise {noise.shape}", LogType.debug) #[2, 4, 16, 32, 32]
+            zero_rank_print(f"latents {latents.shape}", LogType.debug)
+            zero_rank_print(f"timesteps {timesteps.shape}", LogType.debug) # 32
             zero_rank_print(f"noisy_latents {noisy_latents.shape}", LogType.debug)
 
             zero_rank_print("Get text embedding", LogType.debug)
@@ -454,29 +493,32 @@ def train_ad(
                         "train_loss": loss.item() * gradient_accumulation_steps,
                         "epoch": epoch,
                         "sample_time": sample_time,
-                        "data_wait_time": data_wait_time
+                        "data_wait_time": data_wait_time,
+                        "start_time": start_time
                     })
                     zero_rank_print(f"train_loss {loss.item() * gradient_accumulation_steps} epoch {epoch} sample_time {sample_time} data_wait_time {data_wait_time}", LogType.debug)
                 epoch_loss += loss.item() * gradient_accumulation_steps
 
             # Update the progress bar
             progress_bar.set_postfix(loss=epoch_loss / (step + 1))
+            progress_bar.update()
             global_step += 1
             ### <<<< Training <<<< ###
 
             del loss
             torch.cuda.empty_cache()
 
-        # Save checkpoint
-        if is_main_process:
-            state_dict = {
-                "epoch": epoch,
-                "global_step": global_step,
-                "state_dict": unet.module.state_dict(),
-            }
-            torch.save(state_dict, f"{run_name}_animatediff_epoch_{epoch}.pth")
-            wandb.save(f"animatediff_{run_name}_epoch_{epoch}.pth")
-            logging.info(f"Saved state to checkpoints {run_name} (global_step: {global_step})")
+            # Save checkpoint
+            if is_main_process and actual_steps % checkpointing_steps == 0 and actual_steps > 1:
+                state_dict = {
+                    "epoch": epoch,
+                    "global_step": global_step,
+                    "state_dict": unet.module.state_dict(),
+                }
+                torch.save(state_dict, f"{run_name}_animatediff.pth")
+                # torch.save(state_dict, f"{run_name}_animatediff_epoch_{epoch}.pth")
+                wandb.save(f"animatediff_{run_name}_epoch_{epoch}.pth")
+                logging.info(f"Saved state to checkpoints {run_name} (global_step: {global_step})")
 
         # Additional cleanup at the end of an epoch if applicable
         gc.collect()  # Force garbage collection
