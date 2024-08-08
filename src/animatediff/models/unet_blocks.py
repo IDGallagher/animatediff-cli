@@ -170,9 +170,12 @@ class UNetMidBlock3DCrossAttn(nn.Module):
         dual_cross_attention=False,
         use_linear_projection=False,
         upcast_attention=False,
+
         unet_use_cross_frame_attention=None,
         unet_use_temporal_attention=None,
+
         use_motion_module=None,
+
         motion_module_type=None,
         motion_module_kwargs=None,
     ):
@@ -195,6 +198,7 @@ class UNetMidBlock3DCrossAttn(nn.Module):
                 non_linearity=resnet_act_fn,
                 output_scale_factor=output_scale_factor,
                 pre_norm=resnet_pre_norm,
+
             )
         ]
         attentions = []
@@ -213,6 +217,7 @@ class UNetMidBlock3DCrossAttn(nn.Module):
                     norm_num_groups=resnet_groups,
                     use_linear_projection=use_linear_projection,
                     upcast_attention=upcast_attention,
+
                     unet_use_cross_frame_attention=unet_use_cross_frame_attention,
                     unet_use_temporal_attention=unet_use_temporal_attention,
                 )
@@ -238,6 +243,7 @@ class UNetMidBlock3DCrossAttn(nn.Module):
                     non_linearity=resnet_act_fn,
                     output_scale_factor=output_scale_factor,
                     pre_norm=resnet_pre_norm,
+
                 )
             )
 
@@ -251,6 +257,7 @@ class UNetMidBlock3DCrossAttn(nn.Module):
         temb: Optional[torch.FloatTensor] = None,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         attention_mask: Optional[torch.FloatTensor] = None,
+
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
     ) -> torch.FloatTensor:
@@ -265,11 +272,11 @@ class UNetMidBlock3DCrossAttn(nn.Module):
                 return_dict=False,
             )[0]
             if motion_module is not None:
+                print(f"MOTION {motion_module}")
                 hidden_states = motion_module(
                     hidden_states,
                     temb,
-                    encoder_hidden_states=encoder_hidden_states,
-                    encoder_attention_mask=encoder_attention_mask,
+                    encoder_hidden_states=encoder_hidden_states
                 )
             hidden_states = resnet(hidden_states, temb)
 

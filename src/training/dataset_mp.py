@@ -18,9 +18,6 @@ from torchaudio.io import StreamReader
 from torchaudio.utils import ffmpeg_utils
 from transformers import CLIPImageProcessor
 
-sys.path.append("./webdataset/")
-import wids as wids  # type: ignore
-
 import webdataset as wds
 from training.utils import LogType, zero_rank_partial
 

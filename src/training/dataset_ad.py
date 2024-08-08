@@ -76,6 +76,11 @@ def make_sample(sample, sample_size=256, target_fps=8, sample_n_frames=16, is_im
         else:
             pixel_values = frames
 
+        # Check video size
+        if not is_image and pixel_values.shape[0] != sample_n_frames:
+            zero_rank_print(f"Video length mismatch: expected {sample_n_frames}, got {pixel_values.shape[0]}", LogType.error)
+            return None
+
         # Explicitly delete large objects
         del video_path
 

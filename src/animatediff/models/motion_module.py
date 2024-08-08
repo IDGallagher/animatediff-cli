@@ -47,7 +47,7 @@ class VanillaTemporalModule(nn.Module):
     ):
         super().__init__()
 
-        self.temporal_transformer = TemporalTransformer3DModelModified(
+        self.temporal_transformer = TemporalTransformer3DModel(
             in_channels=in_channels,
             num_attention_heads=num_attention_heads,
             attention_head_dim=in_channels // num_attention_heads // temporal_attention_dim_div,
@@ -199,22 +199,6 @@ class TemporalTransformer3DModelModified(TemporalTransformer3DModel):
         output = rearrange(hidden_states, "(b f) c h w -> b c f h w", f=video_length)
         output = output + residual
         return output
-
-class LlamaRMSNorm(nn.Module):
-    def __init__(self, hidden_size, eps=1e-6):
-        """
-        LlamaRMSNorm is equivalent to T5LayerNorm
-        """
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.variance_epsilon = eps
-
-    def forward(self, hidden_states):
-        input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.to(torch.float32)
-        variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return self.weight * hidden_states.to(input_dtype)
 
 @allow_in_graph
 class TemporalTransformerBlock(nn.Module):

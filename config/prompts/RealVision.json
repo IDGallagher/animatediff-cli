@@ -1,12 +1,12 @@
 {
   "name": "RealVision",
   "base": "",
-  "path": "C:/dev/VideoTraining/models/StableDiffusion",
-  "motion_module": "C:/dev/VideoTraining/models/Motion_Module/v3_sd15_mm.ckpt",
+  "path": "data/models/realisticVisionV60B1_v51VAE.safetensors",
+  "motion_module": "models/motion-module/mm_sd_v15_v2.ckpt",
   "compile": false,
   "seed": [
-    13100322578370451493, 14752961627088720670, 9329399085567825781,
-    16987697414827649302
+    1310032257837451493, 1475296162708820670, 932939985567825781,
+    1698769744827649302
   ],
 
   "scheduler": "ddim",

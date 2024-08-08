@@ -269,7 +269,7 @@ def train_ad(
         noise = torch.randn_like(latents)
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (batch_size,), device=device_id).long()
         noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
-        return noise, noisy_latents, timesteps
+        return noise, noisy_latents, timesteps, False
 
     def add_noise_random_timesteps(noise_scheduler, latents, batch_size, video_length):
         # Sample noise that we'll add to the latents
@@ -279,7 +279,7 @@ def train_ad(
         noisy_latents = rearrange(noisy_latents, "(b f) c h w -> b c f h w", f=video_length)
         noise = rearrange(noise, "(b f) c h w -> b c f h w", f=video_length)
         timesteps = rearrange(timesteps, '(b f) -> b f', f=video_length)
-        return noise, noisy_latents, timesteps
+        return noise, noisy_latents, timesteps, False
 
     def add_noise_sequential_timesteps(noise_scheduler, latents, batch_size, video_length):
         target_partitions = 2
@@ -288,7 +288,7 @@ def train_ad(
         # Sample noise that we'll add to the latents
         noise_scheduler.set_timesteps(target_steps)
         timesteps = noise_scheduler.timesteps
-        timesteps = torch.flip(timesteps, dims=[0])
+        # timesteps = torch.flip(timesteps, dims=[0])
         timesteps = torch.cat([torch.full((video_length//2,), timesteps[0]), timesteps])
 
         rank = random.randint(0, 2 * target_partitions - 1)
@@ -305,7 +305,7 @@ def train_ad(
 
         print(f"Timesteps {timesteps}")
 
-        return noise, noisy_latents, timesteps
+        return noise, noisy_latents, timesteps, True
 
     unet.train()
     for epoch in range(first_epoch, num_epochs):
@@ -419,9 +419,10 @@ def train_ad(
                 latents = latents * 0.18215
 
             zero_rank_print("Sample noise", LogType.debug)
-
+            noise, noisy_latents, timesteps, lookahead_denoising = add_noise_random_timesteps(noise_scheduler, latents, batch_size, video_length)
             # noise, noisy_latents, timesteps = add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length)
-            noise, noisy_latents, timesteps = add_noise_sequential_timesteps(noise_scheduler, latents, batch_size, video_length)
+            # noise, noisy_latents, timesteps, lookahead_denoising = add_noise_sequential_timesteps(noise_scheduler, latents, batch_size, video_length)
+            zero_rank_print(f"Lookahead {lookahead_denoising}")
 
             zero_rank_print(f"noise {noise.shape}", LogType.debug) #[2, 4, 16, 32, 32]
             zero_rank_print(f"latents {latents.shape}", LogType.debug)
@@ -458,7 +459,11 @@ def train_ad(
             zero_rank_print(f"Predict the noise residual and compute loss Mixed Precision: {mixed_precision_training}", LogType.debug)
             with torch.amp.autocast('cuda', enabled=mixed_precision_training):
                 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
-                loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                if lookahead_denoising:
+                    mid_point = model_pred.shape[2] // 2
+                    loss = F.mse_loss(model_pred[:, :, mid_point:, :, :].float(), target[:, :, mid_point:, :, :].float(), reduction="mean")
+                else:
+                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                 loss = loss / gradient_accumulation_steps  # Normalize loss to account for accumulation
 
             del noisy_latents, noise, timesteps, model_pred
@@ -491,7 +496,7 @@ def train_ad(
                 if is_main_process and step > 1 and (not is_debug) and use_wandb:
                     wandb.log({
                         "train_loss": loss.item() * gradient_accumulation_steps,
-                        "epoch": epoch,
+                        "epoch": actual_steps // checkpointing_steps,
                         "sample_time": sample_time,
                         "data_wait_time": data_wait_time,
                         "start_time": start_time
@@ -509,6 +514,7 @@ def train_ad(
             torch.cuda.empty_cache()
 
             # Save checkpoint
+            print(f"Actual steps {actual_steps} {actual_steps % checkpointing_steps}")
             if is_main_process and actual_steps % checkpointing_steps == 0 and actual_steps > 1:
                 state_dict = {
                     "epoch": epoch,

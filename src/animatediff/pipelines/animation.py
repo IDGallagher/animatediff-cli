@@ -831,6 +831,9 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
                     if callback is not None and i % callback_steps == 0:
                         callback(i, t, latents)
 
+        # TEMP HACK
+        torch.save(latents, f"init_latents.pt")
+
         # Return latents if requested (this will never be a dict)
         if not output_type == "latent":
             video = self.decode_latents(latents)

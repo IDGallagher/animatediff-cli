@@ -513,7 +513,7 @@ class FifoPipeline(AnimationPipeline):
         indices = list(range(context_frames * num_partitions))
         print(f"Init indicies {indices}")
 
-        # 7.1 First 16 frames done in the conventional way
+        # # 7.1 First 16 frames done in the conventional way
         with self.progress_bar(total=len(timesteps)) as progress_bar:
             progress_bar.set_description("intial sampling")
             context = list(range(context_frames))
@@ -557,6 +557,8 @@ class FifoPipeline(AnimationPipeline):
                     )
                 init_latents = torch.cat(output_latents, dim=2)
                 progress_bar.update()
+
+        # init_latents = torch.load("init_latents.pt").to(latents_device)
 
         video_out = torch.from_numpy(self.decode_latents(init_latents))
         save_video(video_out, "test.mp4")

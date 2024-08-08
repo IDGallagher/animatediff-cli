@@ -35,7 +35,7 @@ train_data:
 
   # csv_path:        "./data/test.csv"
   # video_folder:    "./data/videos"
-  sample_size:     256
+  sample_size:     512
   target_fps:      8
   sample_n_frames: 16
 
@@ -44,8 +44,8 @@ validation_data:
     - "Angry porcupine fishe swim on the reef in search of food. amazing, beautiful underwater marine life world of sea creatures in red sea. scuba diving and tourism"
     - "b&w photo of 42 y.o man in black clothes, bald, face, half body, body, high detailed skin, skin pores, coastline, overcast weather, wind, waves, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3"
     - "close up photo of a rabbit, forest, haze, halation, bloom, dramatic atmosphere, centred, rule of thirds, 200mm 1.4f macro shot"
-    # - photo of coastline, rocks, storm weather, wind, waves, lightning, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3"
-    # - "night, b&w photo of old house, post apocalypse, forest, storm weather, wind, rocks, 8k uhd, dslr, soft lighting, high quality, film grain"
+    - photo of coastline, rocks, storm weather, wind, waves, lightning, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3"
+    - "night, b&w photo of old house, post apocalypse, forest, storm weather, wind, rocks, 8k uhd, dslr, soft lighting, high quality, film grain"
   num_inference_steps: 25
   guidance_scale: 7.5
   context_frames: 16
@@ -59,9 +59,9 @@ trainable_modules:
 unet_checkpoint_path: ""
 
 learning_rate:    1.e-4
-train_batch_size: 1
-gradient_accumulation_steps: 30
-num_workers: 20
+train_batch_size: 2
+gradient_accumulation_steps: 15
+num_workers: 10
 
 epoch_size:           10000000
 num_epochs:           1
