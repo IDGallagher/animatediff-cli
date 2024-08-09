@@ -14,8 +14,8 @@
   "clip_skip": 1,
   "prompts": [
     {
-      "0":"A rooster sat on a fence singing",
-      "128":"A stressed looking business woman in her office with her head in her hands"
+      "0":"Front view of an astronaut galloping on a horse on the moon",
+      "128":"Back view of an astronaut galloping on a horse on the moon"
     }
   ],
   "n_prompts": [

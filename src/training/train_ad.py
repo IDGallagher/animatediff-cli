@@ -419,8 +419,8 @@ def train_ad(
                 latents = latents * 0.18215
 
             zero_rank_print("Sample noise", LogType.debug)
-            noise, noisy_latents, timesteps, lookahead_denoising = add_noise_random_timesteps(noise_scheduler, latents, batch_size, video_length)
-            # noise, noisy_latents, timesteps = add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length)
+            # noise, noisy_latents, timesteps, lookahead_denoising = add_noise_random_timesteps(noise_scheduler, latents, batch_size, video_length)
+            noise, noisy_latents, timesteps, lookahead_denoising = add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length)
             # noise, noisy_latents, timesteps, lookahead_denoising = add_noise_sequential_timesteps(noise_scheduler, latents, batch_size, video_length)
             zero_rank_print(f"Lookahead {lookahead_denoising}")
 

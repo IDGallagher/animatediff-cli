@@ -67,7 +67,7 @@ class VanillaTemporalModule(nn.Module):
             self.temporal_transformer.proj_out = zero_module(self.temporal_transformer.proj_out)
 
     def forward(self, input_tensor, temb, encoder_hidden_states, attention_mask=None, anchor_frame_idx=None):
-        print(f"Input tensor shape {input_tensor.shape}")
+        # print(f"Input tensor shape {input_tensor.shape}")
 
         rotary_embed = None
         if self.rotary_position_encoding:
