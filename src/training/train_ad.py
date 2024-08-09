@@ -380,7 +380,7 @@ def train_ad(
                                 context_stride = 1,
                                 context_overlap = 4,
                             ).videos
-                        save_video(pipeline_output, f"{run_dir}/samples/sample-{actual_steps}/{idx}.mp4")
+                        save_video(pipeline_output, f"{run_dir}/samples/sample-{actual_steps}/{idx}.mp4", validation_data.get("fps", 8))
                     else:
                         with torch.inference_mode(True):
                             pipeline_output = validation_pipeline(

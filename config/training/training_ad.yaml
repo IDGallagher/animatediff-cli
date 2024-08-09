@@ -51,6 +51,7 @@ validation_data:
   context_frames: 16
   context_stride: 1
   context_overlap: 4
+  fps: 6
 
 
 trainable_modules:
