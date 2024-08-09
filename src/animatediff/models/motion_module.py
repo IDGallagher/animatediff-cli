@@ -4,6 +4,8 @@ from typing import Optional
 
 import torch
 from diffusers.models.attention import Attention, FeedForward
+from diffusers.models.attention_processor import HunyuanAttnProcessor2_0
+from diffusers.models.embeddings import get_1d_rotary_pos_embed
 from diffusers.utils import BaseOutput
 from einops import rearrange, repeat
 from torch import Tensor, nn
@@ -44,26 +46,35 @@ class VanillaTemporalModule(nn.Module):
         temporal_position_encoding_max_len=24,
         temporal_attention_dim_div=1,
         zero_initialize=True,
+        rotary_position_encoding: bool = False,
     ):
         super().__init__()
-
+        self.rotary_position_encoding = rotary_position_encoding
+        self.attention_head_dim=in_channels // num_attention_heads // temporal_attention_dim_div
         self.temporal_transformer = TemporalTransformer3DModel(
             in_channels=in_channels,
             num_attention_heads=num_attention_heads,
-            attention_head_dim=in_channels // num_attention_heads // temporal_attention_dim_div,
+            attention_head_dim=self.attention_head_dim,
             num_layers=num_transformer_block,
             attention_block_types=attention_block_types,
             cross_frame_attention_mode=cross_frame_attention_mode,
             temporal_position_encoding=temporal_position_encoding,
             temporal_position_encoding_max_len=temporal_position_encoding_max_len,
+            rotary_position_encoding=rotary_position_encoding,
         )
 
         if zero_initialize:
             self.temporal_transformer.proj_out = zero_module(self.temporal_transformer.proj_out)
 
     def forward(self, input_tensor, temb, encoder_hidden_states, attention_mask=None, anchor_frame_idx=None):
+        print(f"Input tensor shape {input_tensor.shape}")
+
+        rotary_embed = None
+        if self.rotary_position_encoding:
+            rotary_embed = get_1d_rotary_pos_embed(self.attention_head_dim, input_tensor.shape[2], use_real=True)
+
         hidden_states = input_tensor
-        hidden_states = self.temporal_transformer(hidden_states, encoder_hidden_states, attention_mask)
+        hidden_states = self.temporal_transformer(hidden_states, encoder_hidden_states, attention_mask, rotary_embed)
 
         output = hidden_states
         return output
@@ -90,6 +101,7 @@ class TemporalTransformer3DModel(nn.Module):
         cross_frame_attention_mode=None,
         temporal_position_encoding=False,
         temporal_position_encoding_max_len=24,
+        rotary_position_encoding: bool = False,
     ):
         super().__init__()
 
@@ -116,6 +128,7 @@ class TemporalTransformer3DModel(nn.Module):
                     cross_frame_attention_mode=cross_frame_attention_mode,
                     temporal_position_encoding=temporal_position_encoding,
                     temporal_position_encoding_max_len=temporal_position_encoding_max_len,
+                    rotary_position_encoding=rotary_position_encoding,
                 )
                 for d in range(num_layers)
             ]
@@ -127,6 +140,7 @@ class TemporalTransformer3DModel(nn.Module):
         hidden_states: Tensor,
         encoder_hidden_states: Optional[Tensor] = None,
         attention_mask: Optional[Tensor] = None,
+        rotary_embed: Optional[torch.Tensor] = None,
     ):
         assert (
             hidden_states.dim() == 5
@@ -145,7 +159,7 @@ class TemporalTransformer3DModel(nn.Module):
         # Transformer Blocks
         for block in self.transformer_blocks:
             hidden_states = block(
-                hidden_states, encoder_hidden_states=encoder_hidden_states, video_length=video_length
+                hidden_states, encoder_hidden_states=encoder_hidden_states, video_length=video_length, rotary_embed=rotary_embed,
             )
 
         # output
@@ -167,6 +181,7 @@ class TemporalTransformer3DModelModified(TemporalTransformer3DModel):
         hidden_states: Tensor,
         encoder_hidden_states: Optional[Tensor] = None,
         attention_mask: Optional[Tensor] = None,
+        rotary_embed: Optional[torch.Tensor] = None,
     ):
         assert (
             hidden_states.dim() == 5
@@ -187,7 +202,7 @@ class TemporalTransformer3DModelModified(TemporalTransformer3DModel):
         # Transformer Blocks
         for block in self.transformer_blocks:
             hidden_states = block(
-                hidden_states, encoder_hidden_states=encoder_hidden_states, video_length=video_length
+                hidden_states, encoder_hidden_states=encoder_hidden_states, video_length=video_length,  rotary_embed=rotary_embed
             )
 
         # output
@@ -220,12 +235,12 @@ class TemporalTransformerBlock(nn.Module):
         cross_frame_attention_mode=None,
         temporal_position_encoding: bool = False,
         temporal_position_encoding_max_len: int = 24,
+        rotary_position_encoding: bool = False,
     ):
         super().__init__()
 
         attention_blocks = []
         norms = []
-
         for block_name in attention_block_types:
             attention_blocks.append(
                 VersatileAttention(
@@ -240,6 +255,7 @@ class TemporalTransformerBlock(nn.Module):
                     cross_frame_attention_mode=cross_frame_attention_mode,
                     temporal_position_encoding=temporal_position_encoding,
                     temporal_position_encoding_max_len=temporal_position_encoding_max_len,
+                    rotary_position_encoding=rotary_position_encoding,
                 )
             )
             norms.append(nn.LayerNorm(dim))
@@ -250,7 +266,7 @@ class TemporalTransformerBlock(nn.Module):
         self.ff = FeedForward(dim, dropout=dropout, activation_fn=activation_fn)
         self.ff_norm = nn.LayerNorm(dim)
 
-    def forward(self, hidden_states, encoder_hidden_states=None, attention_mask=None, video_length=None):
+    def forward(self, hidden_states, encoder_hidden_states=None, attention_mask=None, video_length=None, rotary_embed: Optional[torch.Tensor] = None):
         for attention_block, norm in zip(self.attention_blocks, self.norms):
             norm_hidden_states = norm(hidden_states)
             hidden_states = (
@@ -260,6 +276,7 @@ class TemporalTransformerBlock(nn.Module):
                     if attention_block.is_cross_attention
                     else None,
                     video_length=video_length,
+                    rotary_embed=rotary_embed,
                 )
                 + hidden_states
             )
@@ -294,6 +311,7 @@ class VersatileAttention(Attention):
         cross_frame_attention_mode: Optional[str] = None,
         temporal_position_encoding: bool = False,
         temporal_position_encoding_max_len: int = 24,
+        rotary_position_encoding: bool = False,
         *args,
         **kwargs,
     ):
@@ -303,18 +321,19 @@ class VersatileAttention(Attention):
 
         self.attention_mode = attention_mode
         self.is_cross_attention = kwargs["cross_attention_dim"] is not None
-
-        self.pos_encoder = (
-            PositionalEncoding(kwargs["query_dim"], dropout=0.0, max_len=temporal_position_encoding_max_len)
-            if (temporal_position_encoding and attention_mode == "Temporal")
-            else None
-        )
+        self.pos_encoder = None
+        if (temporal_position_encoding and attention_mode == "Temporal"):
+            if rotary_position_encoding:
+                # This processor is identical to the default apart from adding rotary embedding
+                self.processor = HunyuanAttnProcessor2_0()
+            else:
+                self.pos_encoder = PositionalEncoding(kwargs["query_dim"], dropout=0.0, max_len=temporal_position_encoding_max_len)
 
     def extra_repr(self):
         return f"(Module Info) Attention_Mode: {self.attention_mode}, Is_Cross_Attention: {self.is_cross_attention}"
 
     def forward(
-        self, hidden_states: Tensor, encoder_hidden_states=None, attention_mask=None, video_length=None
+        self, hidden_states: Tensor, encoder_hidden_states=None, attention_mask=None, video_length=None, rotary_embed: Optional[torch.Tensor] = None
     ):
         if self.attention_mode == "Temporal":
             d = hidden_states.shape[1]
@@ -332,7 +351,10 @@ class VersatileAttention(Attention):
             raise NotImplementedError
 
         # attention processor makes this easy so that's nice
-        hidden_states = self.processor(self, hidden_states, encoder_hidden_states, attention_mask)
+        if rotary_embed is not None:
+            hidden_states = self.processor(self, hidden_states, encoder_hidden_states, attention_mask, image_rotary_emb=rotary_embed)
+        else:
+            hidden_states = self.processor(self, hidden_states, encoder_hidden_states, attention_mask)
 
         if self.attention_mode == "Temporal":
             hidden_states = rearrange(hidden_states, "(b d) f c -> (b f) d c", d=d)

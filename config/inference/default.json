@@ -13,7 +13,8 @@
       "attention_block_types": ["Temporal_Self", "Temporal_Self"],
       "temporal_position_encoding": true,
       "temporal_position_encoding_max_len": 32,
-      "temporal_attention_dim_div": 1
+      "temporal_attention_dim_div": 1,
+      "rotary_position_encoding": false
     }
   },
   "noise_scheduler_kwargs": {
