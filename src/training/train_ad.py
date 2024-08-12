@@ -482,12 +482,12 @@ def train_ad(
             if (step + 1) % gradient_accumulation_steps == 0:
                 zero_rank_print("=== Accumulate gradients", LogType.debug)
                 if mixed_precision_training:
-                    scaler.unscale_(optimizer)  # Unscale gradients before clipping
-                    torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
+                    # scaler.unscale_(optimizer)  # Unscale gradients before clipping
+                    # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
                     scaler.step(optimizer)  # Perform optimizer step
                     scaler.update()  # Update the scale for next iteration
                 else:
-                    torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
+                    # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
                     optimizer.step()
 
                 lr_scheduler.step()  # Update learning rate
