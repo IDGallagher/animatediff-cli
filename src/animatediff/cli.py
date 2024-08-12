@@ -229,7 +229,7 @@ def generate(
             "--context",
             "-C",
             min=1,
-            max=24,
+            max=64,
             help="Number of frames to condition on (default: max of <length> or 24)",
             show_default=False,
             rich_help_panel="Generation",
@@ -393,7 +393,7 @@ def generate(
         for idx, pixel_value in enumerate(video_tensor_out):
             pixel_value = pixel_value[None, ...]
             # save_frames(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}")
-            save_video(pixel_value, save_dir.joinpath("initial.mp4"))
+            save_video(pixel_value, save_dir.joinpath("initial.mp4"), fps=model_config.video_fps)
             save_frames(pixel_value, save_dir.joinpath(f"initial"))
 
     # beware the pipeline
@@ -463,6 +463,7 @@ def generate(
             # TODO: Move gif Output out of run_inference...
 
             output = run_inference(
+                fps=model_config.video_fps,
                 pipeline=pipeline,
                 prompt=prompt,
                 prompt_map=prompt_map,
@@ -497,7 +498,7 @@ def generate(
     if save_merged:
         logger.info("Output merged output video...")
         merged_output = torch.concat(outputs, dim=0)
-        save_video(merged_output, save_dir.joinpath("final.mp4"))
+        save_video(merged_output, save_dir.joinpath("final.mp4"), model_config.video_fps)
 
     logger.info("Done, exiting...")
     cli.info

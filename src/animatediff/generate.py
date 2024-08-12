@@ -142,6 +142,7 @@ def create_pipeline(
 
 def run_inference(
     pipeline: AnimationPipeline,
+    fps: int,
     prompt: Optional[str] = None,
     prompt_map: Optional[dict[int, str]] = None,
     n_prompt: str = ...,
@@ -260,9 +261,9 @@ def run_inference(
     out_str = f"{idx:02d}_{seed}_{prompt_str}"[:250]
     out_file = out_dir.joinpath(f"{out_str}.mp4")
     if return_dict is True:
-        save_video(pipeline_output["videos"], out_file)
+        save_video(pipeline_output["videos"], out_file, fps)
     else:
-        save_video(pipeline_output, out_file)
+        save_video(pipeline_output, out_file, fps)
 
     logger.info(f"Saved sample to {out_file}")
     return pipeline_output

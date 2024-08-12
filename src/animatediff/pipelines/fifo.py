@@ -561,13 +561,13 @@ class FifoPipeline(AnimationPipeline):
         # init_latents = torch.load("init_latents.pt").to(latents_device)
 
         video_out = torch.from_numpy(self.decode_latents(init_latents))
-        save_video(video_out, "test.mp4")
+        save_video(video_out, "test.mp4", fps=6)
 
         # 7.2 FIFO Denoising
         latents = prepare_fifo_latents(init_latents, self.scheduler, lookahead_denoising=lookahead_denoising)
 
         video_out = torch.from_numpy(self.decode_latents(latents))
-        save_video(video_out, "prepared.mp4")
+        save_video(video_out, "prepared.mp4", fps=6)
 
         self.scheduler.set_timesteps(num_inference_steps, device=latents_device)
         timesteps = self.scheduler.timesteps

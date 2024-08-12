@@ -125,7 +125,7 @@ def save_gif(video: Tensor, save_path: PathLike, fps: int = 8):
         fp=save_path, format="GIF", append_images=images[1:], save_all=True, duration=(1 / fps * 1000), loop=0
     )
 
-def save_video(video: torch.Tensor, save_path: str, fps: int = 8):
+def save_video(video: torch.Tensor, save_path: str, fps: int):
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
 

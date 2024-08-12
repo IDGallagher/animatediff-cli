@@ -542,17 +542,17 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         state_dict.update(motion_state_dict)
 
         # check if we have a v1 or v2 motion module
-        motion_up_dim = state_dict[MMV2_DIM_KEY].shape
-        if motion_up_dim[1] != 24:
-            logger.info("Detected V2 motion module")
-            if unet_additional_kwargs:
-                motion_module_kwargs = unet_additional_kwargs.pop("motion_module_kwargs", {})
-                motion_module_kwargs["temporal_position_encoding_max_len"] = motion_up_dim[1]
-                unet_additional_kwargs["motion_module_kwargs"] = motion_module_kwargs
-            else:
-                unet_additional_kwargs = {
-                    "motion_module_kwargs": {"temporal_position_encoding_max_len": motion_up_dim[2]}
-                }
+        # motion_up_dim = state_dict[MMV2_DIM_KEY].shape
+        # if motion_up_dim[1] != 24:
+        logger.info("Always a V2 motion module")
+        if unet_additional_kwargs:
+            motion_module_kwargs = unet_additional_kwargs.pop("motion_module_kwargs", {})
+            # motion_module_kwargs["temporal_position_encoding_max_len"] = motion_up_dim[1]
+            unet_additional_kwargs["motion_module_kwargs"] = motion_module_kwargs
+        # else:
+        #     unet_additional_kwargs = {
+        #         "motion_module_kwargs": {"temporal_position_encoding_max_len": motion_up_dim[2]}
+        #     }
 
         config_file = pretrained_model_path / "config.json"
         if not (config_file.exists() and config_file.is_file()):
