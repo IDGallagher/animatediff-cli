@@ -1,19 +1,15 @@
 import logging
 from enum import Enum
 
-from diffusers.schedulers import (
-    DDIMScheduler,
-    DPMSolverMultistepScheduler,
-    DPMSolverSinglestepScheduler,
-    EulerAncestralDiscreteScheduler,
-    EulerDiscreteScheduler,
-    HeunDiscreteScheduler,
-    KDPM2AncestralDiscreteScheduler,
-    KDPM2DiscreteScheduler,
-    LMSDiscreteScheduler,
-    PNDMScheduler,
-    UniPCMultistepScheduler,
-)
+from diffusers.schedulers import (DDIMScheduler, DDPMScheduler,
+                                  DPMSolverMultistepScheduler,
+                                  DPMSolverSinglestepScheduler,
+                                  EulerAncestralDiscreteScheduler,
+                                  EulerDiscreteScheduler,
+                                  HeunDiscreteScheduler,
+                                  KDPM2AncestralDiscreteScheduler,
+                                  KDPM2DiscreteScheduler, LMSDiscreteScheduler,
+                                  PNDMScheduler, UniPCMultistepScheduler)
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +17,7 @@ logger = logging.getLogger(__name__)
 # See https://github.com/huggingface/diffusers/issues/4167 for more details on sched mapping from A1111
 class DiffusionScheduler(str, Enum):
     ddim = "ddim"  # DDIM
+    ddpm = "ddpm" # DDPM
     pndm = "pndm"  # PNDM
     heun = "heun"  # Heun
     unipc = "unipc"  # UniPC
@@ -56,6 +53,8 @@ def get_scheduler(name: str, config: dict = {}):
     match name:
         case DiffusionScheduler.ddim:
             sched_class = DDIMScheduler
+        case DiffusionScheduler.ddpm:
+            sched_class = DDPMScheduler
         case DiffusionScheduler.pndm:
             sched_class = PNDMScheduler
         case DiffusionScheduler.heun:

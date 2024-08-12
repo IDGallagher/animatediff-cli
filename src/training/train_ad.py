@@ -17,7 +17,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 import torchvision
-from diffusers import AutoencoderKL, StableDiffusionPipeline
+from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline
 from diffusers.models import UNet2DConditionModel
 from diffusers.optimization import get_scheduler as get_lr_scheduler
 from einops import rearrange
@@ -128,8 +128,8 @@ def train_ad(
         OmegaConf.save(config, os.path.join(run_dir, 'config.yaml'))
 
     # set up scheduler
-    noise_scheduler = get_scheduler("ddim", OmegaConf.to_container(noise_scheduler_kwargs))
-    zero_rank_print(f'Using scheduler "ddim" ({noise_scheduler.__class__.__name__})', LogType.info)
+    noise_scheduler = get_scheduler("ddpm", OmegaConf.to_container(noise_scheduler_kwargs))
+    zero_rank_print(f'Using scheduler "ddpm" ({noise_scheduler.__class__.__name__})', LogType.info)
     logger.debug("Loading tokenizer...")
     tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(sd_model_path, subfolder="tokenizer")
     logger.debug("Loading text encoder...")
