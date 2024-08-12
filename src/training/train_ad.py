@@ -334,7 +334,7 @@ def train_ad(
                     for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
                         pixel_value = pixel_value[None, ...]
                         # save_frames(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}")
-                        save_video(pixel_value.cpu(), f"{run_dir}/sanity_check/{step}-{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{step}-{idx}'}.mp4")
+                        save_video(pixel_value.cpu(), f"{run_dir}/sanity_check/{step}-{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{step}-{idx}'}.mp4", fps=train_data.target_fps)
                 else:
                     for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
                         pixel_value = pixel_value / 2. + 0.5

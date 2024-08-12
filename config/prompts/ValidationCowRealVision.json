@@ -2,7 +2,7 @@
   "name": "ValidCow",
   "base": "",
   "path": "data/models/realisticVisionV60B1_v51VAE.safetensors",
-  "motion_module": "models/motion-module/mm_sd_v15_v2.ckpt",
+  "motion_module": "/workspace/animatediff-cli/rope_256_mm.pth",
   "compile": false,
   "seed": [
     42

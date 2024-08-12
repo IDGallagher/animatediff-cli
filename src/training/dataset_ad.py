@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 logger.disabled = False
 zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
 
-def make_sample(sample, sample_size=256, target_fps=8, sample_n_frames=16, is_image=False, **kwargs):
+def make_sample(sample, sample_size, target_fps, sample_n_frames, is_image=False, **kwargs):
     stream_reader = None
     frames = None
     try:
