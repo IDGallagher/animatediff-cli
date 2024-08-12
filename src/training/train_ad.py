@@ -40,7 +40,7 @@ from animatediff.utils.util import (relative_path, save_frames, save_images,
                                     save_video)
 from training.dataset_ad import make_dataloader
 
-from .utils import LogType, zero_rank_partial
+from .utils import LogType, apply_lora, zero_rank_partial
 
 logger = logging.getLogger(__name__)
 zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
@@ -137,6 +137,7 @@ def train_ad(
     logger.debug("Loading VAE...")
     vae: AutoencoderKL = AutoencoderKL.from_pretrained(sd_model_path, subfolder="vae")
     logger.debug("Loading Unet...")
+
     if not image_finetune:
         unet = UNet3DConditionModel.from_pretrained_2d(
             sd_model_path, subfolder="unet",
@@ -160,6 +161,13 @@ def train_ad(
         m, u = unet.load_state_dict(state_dict, strict=False)
         zero_rank_print(f"missing keys: {len(m)}, unexpected keys: {len(u)}")
         assert len(u) == 0
+
+    if train_data.adapter_lora_path != "":
+        print(f"load domain lora from {train_data.adapter_lora_path}")
+        domain_lora_state_dict = torch.load(train_data.adapter_lora_path, map_location="cpu")
+        domain_lora_state_dict = domain_lora_state_dict["state_dict"] if "state_dict" in domain_lora_state_dict else domain_lora_state_dict
+        domain_lora_state_dict.pop("animatediff_config", "")
+        unet = apply_lora(unet, domain_lora_state_dict, alpha=train_data.adapter_lora_scale)
 
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
@@ -490,12 +498,14 @@ def train_ad(
             if (step + 1) % gradient_accumulation_steps == 0:
                 zero_rank_print("=== Accumulate gradients", LogType.debug)
                 if mixed_precision_training:
-                    # scaler.unscale_(optimizer)  # Unscale gradients before clipping
-                    # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
+                    if train_data.use_clipping:
+                        scaler.unscale_(optimizer)  # Unscale gradients before clipping
+                        torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
                     scaler.step(optimizer)  # Perform optimizer step
                     scaler.update()  # Update the scale for next iteration
                 else:
-                    # torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
+                    if train_data.use_clipping:
+                        torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)
                     optimizer.step()
 
                 lr_scheduler.step()  # Update learning rate
