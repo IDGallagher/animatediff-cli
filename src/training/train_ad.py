@@ -21,6 +21,7 @@ from diffusers import AutoencoderKL, StableDiffusionPipeline
 from diffusers.models import UNet2DConditionModel
 from diffusers.optimization import get_scheduler as get_lr_scheduler
 from einops import rearrange
+from lion_pytorch import Lion
 from omegaconf import OmegaConf
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.swa_utils import AveragedModel
@@ -186,6 +187,13 @@ def train_ad(
     if gradient_checkpointing:
         logger.info("Enabling gradient checkpointing")
         unet.enable_gradient_checkpointing()
+
+    if not train_data.use_lion_optim:
+        optimizer = torch.optim.AdamW
+    else:
+        optimizer = Lion
+        learning_rate = learning_rate / 10
+        adam_weight_decay *= 10
 
     # Optimizer and loss
     optimizer = torch.optim.AdamW(

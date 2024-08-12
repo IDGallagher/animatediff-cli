@@ -60,10 +60,11 @@ trainable_modules:
 
 unet_checkpoint_path: ""
 
-learning_rate:    1.e-4
+learning_rate:    5.e-4
 train_batch_size: 1
 gradient_accumulation_steps: 30
 num_workers: 12
+use_lion_optim: True
 
 epoch_size:           10000000
 num_epochs:           1
