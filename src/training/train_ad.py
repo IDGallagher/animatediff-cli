@@ -498,6 +498,7 @@ def train_ad(
                 if is_main_process and step > 1 and (not is_debug) and use_wandb:
                     wandb.log({
                         "train_loss": loss.item() * gradient_accumulation_steps,
+                        "lr": lr_scheduler.get_lr()[0],
                         "epoch": actual_steps // checkpointing_steps,
                         "sample_time": sample_time,
                         "data_wait_time": data_wait_time,
