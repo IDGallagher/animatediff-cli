@@ -257,11 +257,13 @@ def train_ad(
     scaler = torch.amp.GradScaler('cuda') if mixed_precision_training else None
 
     def normalize_and_rescale(image):
-        MEAN = [0.5, 0.5, 0.5]
-        SD = [0.5, 0.5, 0.5]
+        # MEAN = [0.5, 0.5, 0.5]
+        # SD = [0.5, 0.5, 0.5]
+        MEAN = [0.485, 0.456, 0.406]
+        SD = [0.229, 0.224, 0.225]
         mean = torch.tensor(MEAN).view(1, 1, 3, 1, 1).to(image.device)
         std = torch.tensor(SD).view(1, 1, 3, 1, 1).to(image.device)
-        return (image/255.0 - mean) / std
+        return (image.float()/255.0 - mean) / std
 
     def add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length):
         latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
