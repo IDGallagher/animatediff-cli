@@ -103,6 +103,7 @@ def train_ad(
 
     seed = global_seed + global_rank
     torch.manual_seed(seed)
+    np.random.seed(seed)
 
     sample_start_time = time.time()
     sample_end_time = time.time()

@@ -104,8 +104,8 @@ class VanillaTemporalModule(nn.Module):
 
         rotary_embed = None
         if self.rotary_position_encoding:
-            # rotary_embed = RotaryEmbedding(dim = self.attention_head_dim, freqs_for='pixel', max_freq=64).to(input_tensor.device)
-            rotary_embed = RotaryEmbedding(dim = self.attention_head_dim).to(input_tensor.device)
+            rotary_embed = RotaryEmbedding(dim = self.attention_head_dim, freqs_for='pixel', max_freq=24, theta_rescale_factor=1 ).to(input_tensor.device)
+            # rotary_embed = RotaryEmbedding(dim = self.attention_head_dim).to(input_tensor.device).to(input_tensor.device)
 #  get_1d_rotary_pos_embed(self.attention_head_dim, input_tensor.shape[2], use_real=True)
 
         hidden_states = input_tensor

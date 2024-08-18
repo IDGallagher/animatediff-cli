@@ -2,18 +2,19 @@
   "name": "ValidCow",
   "base": "",
   "path": "data/models/realisticVisionV60B1_v51VAE.safetensors",
-  "motion_module": "/workspace/animatediff-cli/rope_256_mm.pth",
+  "motion_module": "models/motion-module/rope_256_dom_pix_24fps_b1_mm.pth",
   "compile": false,
   "seed": [
     42
   ],
-  "video_fps":  6,
+
+  "video_fps":  24,
   "scheduler": "ddim",
   "steps": 25,
   "guidance_scale": 7.5,
   "clip_skip": 1,
   "prompts": [
-    "b&w photo of 42 y.o man in black clothes, bald, face, half body, body, high detailed skin, skin pores, coastline, overcast weather, wind, waves, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3"
+    "A rally car drifting through a corner in a forest course. Dust billowing"
   ],
   "n_prompts": [
     "semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, text, close up, cropped, out of frame, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck"

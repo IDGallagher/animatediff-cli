@@ -272,7 +272,7 @@ class UNetMidBlock3DCrossAttn(nn.Module):
                 return_dict=False,
             )[0]
             if motion_module is not None:
-                print(f"MOTION {motion_module}")
+                # print(f"MOTION {motion_module}")
                 hidden_states = motion_module(
                     hidden_states,
                     temb,
