@@ -84,7 +84,8 @@ class VanillaTemporalModule(nn.Module):
         super().__init__()
         self.rotary_position_encoding = rotary_position_encoding
         self.attention_head_dim=in_channels // num_attention_heads // temporal_attention_dim_div
-        self.temporal_transformer = TemporalTransformer3DModel(
+        # self.temporal_transformer = TemporalTransformer3DModel(
+        self.temporal_transformer = TemporalTransformer3DModelModified(
             in_channels=in_channels,
             num_attention_heads=num_attention_heads,
             attention_head_dim=self.attention_head_dim,
@@ -104,8 +105,8 @@ class VanillaTemporalModule(nn.Module):
 
         rotary_embed = None
         if self.rotary_position_encoding:
-            rotary_embed = RotaryEmbedding(dim = self.attention_head_dim, freqs_for='pixel', max_freq=24, theta_rescale_factor=1 ).to(input_tensor.device)
-            # rotary_embed = RotaryEmbedding(dim = self.attention_head_dim).to(input_tensor.device).to(input_tensor.device)
+            rotary_embed = RotaryEmbedding(dim = self.attention_head_dim, freqs_for='pixel', max_freq=48).to(input_tensor.device)
+            # rotary_embed = RotaryEmbedding(dim = self.attention_head_dim).to(input_tensor.device)
 #  get_1d_rotary_pos_embed(self.attention_head_dim, input_tensor.shape[2], use_real=True)
 
         hidden_states = input_tensor

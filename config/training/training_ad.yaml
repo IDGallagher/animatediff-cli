@@ -37,8 +37,8 @@ train_data:
   # csv_path:        "./data/test.csv"
   # video_folder:    "./data/videos"
   sample_size:     256
-  target_fps:      6
-  sample_n_frames: 16
+  target_fps:      24
+  sample_n_frames: 24
 
   use_lion_optim: True
   use_clipping: True
@@ -57,7 +57,7 @@ validation_data:
   context_frames: 16
   context_stride: 1
   context_overlap: 4
-  fps: 6
+  fps: 24
 
 
 trainable_modules:
@@ -67,8 +67,8 @@ unet_checkpoint_path: ""
 
 learning_rate:    5.e-4
 train_batch_size: 1
-gradient_accumulation_steps: 30
-num_workers: 12
+gradient_accumulation_steps: 1
+num_workers: 0
 
 epoch_size:           10000000
 num_epochs:           1
@@ -81,6 +81,6 @@ validation_steps_tuple: [10, 20, 30, 40, 60, 70, 80, 90]
 global_seed: 42
 mixed_precision_training: True
 enable_xformers_memory_efficient_attention: False
-gradient_checkpointing: False
+gradient_checkpointing: True
 
 is_debug: False

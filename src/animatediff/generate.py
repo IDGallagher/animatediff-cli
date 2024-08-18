@@ -124,8 +124,8 @@ def create_pipeline(
     # I'll deal with LoRA later...
 
     logger.info("Creating AnimationPipeline...")
-    # pipeline = FifoPipeline(
-    pipeline = AnimationPipeline(
+    pipeline = FifoPipeline(
+    # pipeline = AnimationPipeline(
         vae=vae,
         text_encoder=text_encoder,
         tokenizer=tokenizer,
