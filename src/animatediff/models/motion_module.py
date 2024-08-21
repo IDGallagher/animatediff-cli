@@ -84,8 +84,8 @@ class VanillaTemporalModule(nn.Module):
         super().__init__()
         self.rotary_position_encoding = rotary_position_encoding
         self.attention_head_dim=in_channels // num_attention_heads // temporal_attention_dim_div
-        # self.temporal_transformer = TemporalTransformer3DModel(
-        self.temporal_transformer = TemporalTransformer3DModelModified(
+        self.temporal_transformer = TemporalTransformer3DModel(
+        # self.temporal_transformer = TemporalTransformer3DModelModified(
             in_channels=in_channels,
             num_attention_heads=num_attention_heads,
             attention_head_dim=self.attention_head_dim,

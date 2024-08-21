@@ -262,7 +262,7 @@ class FifoPipeline(AnimationPipeline):
         neg_image_embeds: Optional[torch.FloatTensor] = None,
         image_embed_frames: list[int] = [],
         is_single_prompt_mode: bool = False,
-        num_partitions: int = 2,
+        num_partitions: int = 1,
         **kwargs,
     ):
         num_inference_steps = context_frames * num_partitions # force number of inference steps to be size of queue
@@ -509,7 +509,7 @@ class FifoPipeline(AnimationPipeline):
         print(f"init_latents shape {init_latents.shape}")
         print(f"video_length {video_length}")
 
-        lookahead_denoising = True
+        lookahead_denoising = False
         indices = list(range(context_frames * num_partitions))
         print(f"Init indicies {indices}")
 
