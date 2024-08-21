@@ -37,8 +37,8 @@ train_data:
   # csv_path:        "./data/test.csv"
   # video_folder:    "./data/videos"
   sample_size:     256
-  target_fps:      24
-  sample_n_frames: 24
+  target_fps:      6
+  sample_n_frames: 16
 
   use_lion_optim: True
   use_clipping: True
@@ -66,16 +66,18 @@ trainable_modules:
 unet_checkpoint_path: ""
 
 learning_rate:    5.e-4
+lr_scheduler:     "cosine"
 train_batch_size: 1
 gradient_accumulation_steps: 1
 num_workers: 0
 
-epoch_size:           10000000
+# epoch_size:           10000000
+epoch_size:           1000
 num_epochs:           1
 checkpointing_epochs: -1
 checkpointing_steps:  100
 
-validation_steps:       50
+validation_steps:       100
 validation_steps_tuple: []
 
 global_seed: 42

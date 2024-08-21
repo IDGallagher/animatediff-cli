@@ -243,8 +243,8 @@ def train_ad(
     lr_scheduler = get_lr_scheduler(
         lr_scheduler,
         optimizer=optimizer,
-        num_warmup_steps=lr_warmup_steps * gradient_accumulation_steps,
-        num_training_steps=epoch_size * num_epochs * gradient_accumulation_steps / train_batch_size,
+        num_warmup_steps=lr_warmup_steps,
+        num_training_steps=epoch_size * num_epochs,
     )
 
     # DDP wrapper
