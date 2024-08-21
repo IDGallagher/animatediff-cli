@@ -198,20 +198,20 @@ def train_ad(
         unet.enable_gradient_checkpointing()
 
     if not train_data.use_lion_optim:
-        optimizer = torch.optim.AdamW
+        optimizer = torch.optim.AdamW(
+            trainable_params,
+            lr=learning_rate,
+            betas=(adam_beta1, adam_beta2),
+            weight_decay=adam_weight_decay,
+            eps=adam_epsilon,
+        )
     else:
-        optimizer = Lion
-        learning_rate = learning_rate / 10
-        adam_weight_decay *= 10
-
-    # Optimizer and loss
-    optimizer = optimizer(
-        trainable_params,
-        lr=learning_rate,
-        betas=(adam_beta1, adam_beta2),
-        weight_decay=adam_weight_decay,
-        eps=adam_epsilon,
-    )
+        optimizer = Lion(
+            trainable_params,
+            lr=learning_rate / 10,
+            betas=(adam_beta1, adam_beta2),
+            weight_decay=adam_weight_decay * 10,
+        )
 
     # Move models to GPU
 
