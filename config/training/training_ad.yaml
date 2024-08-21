@@ -18,7 +18,7 @@ unet_additional_kwargs:
     temporal_position_encoding_max_len : 32
     temporal_attention_dim_div         : 1
     zero_initialize                    : False
-    rotary_position_encoding           : True
+    rotary_position_encoding           : False
 
 noise_scheduler_kwargs:
   num_train_timesteps: 1000
