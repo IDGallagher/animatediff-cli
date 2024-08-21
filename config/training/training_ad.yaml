@@ -65,11 +65,11 @@ trainable_modules:
 
 unet_checkpoint_path: ""
 
-learning_rate:    5.e-4
+learning_rate:    1.e-4
 lr_scheduler:     "cosine"
-train_batch_size: 1
+train_batch_size: 2
 gradient_accumulation_steps: 1
-num_workers: 0
+num_workers: 2
 
 # epoch_size:           10000000
 epoch_size:           1000

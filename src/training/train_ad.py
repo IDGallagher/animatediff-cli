@@ -205,7 +205,7 @@ def train_ad(
         adam_weight_decay *= 10
 
     # Optimizer and loss
-    optimizer = torch.optim.AdamW(
+    optimizer = optimizer(
         trainable_params,
         lr=learning_rate,
         betas=(adam_beta1, adam_beta2),
@@ -225,7 +225,7 @@ def train_ad(
     vae = vae.to(device=device_id)
 
     # Get the training dataset
-    train_dataloader = make_dataloader(**train_data, batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size)
+    train_dataloader = make_dataloader(**train_data, batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size)
 
     # Get the training iteration
     # if max_train_steps == -1:
