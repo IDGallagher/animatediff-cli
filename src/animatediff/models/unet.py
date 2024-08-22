@@ -17,7 +17,7 @@ from einops import rearrange, repeat
 from safetensors.torch import load_file
 from torch import Tensor, nn
 
-from animatediff.models.resnet import InflatedConv3d
+from animatediff.models.resnet import InflatedConv3d, InflatedGroupNorm
 from animatediff.models.unet_blocks import (CrossAttnDownBlock3D,
                                             CrossAttnUpBlock3D, DownBlock3D,
                                             UNetMidBlock3DCrossAttn, UpBlock3D,
@@ -67,13 +67,13 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         norm_eps: float = 1e-5,
         cross_attention_dim: int = 1280,
         attention_head_dim: Union[int, Tuple[int]] = 8,
-        num_attention_heads: Optional[Union[int, Tuple[int]]] = None,
         dual_cross_attention: bool = False,
         use_linear_projection: bool = False,
         class_embed_type: Optional[str] = None,
         num_class_embeds: Optional[int] = None,
         upcast_attention: bool = False,
         resnet_time_scale_shift: str = "default",
+        use_inflated_groupnorm=False,
         # Additional
         use_motion_module=False,
         motion_module_resolutions=(1, 2, 4, 8),
@@ -146,6 +146,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
                 resnet_time_scale_shift=resnet_time_scale_shift,
                 unet_use_cross_frame_attention=unet_use_cross_frame_attention,
                 unet_use_temporal_attention=unet_use_temporal_attention,
+                use_inflated_groupnorm=use_inflated_groupnorm,
                 use_motion_module=use_motion_module
                 and (res in motion_module_resolutions)
                 and (not motion_module_decoder_only),
@@ -171,6 +172,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
                 upcast_attention=upcast_attention,
                 unet_use_cross_frame_attention=unet_use_cross_frame_attention,
                 unet_use_temporal_attention=unet_use_temporal_attention,
+                use_inflated_groupnorm=use_inflated_groupnorm,
                 use_motion_module=use_motion_module and motion_module_mid_block,
                 motion_module_type=motion_module_type,
                 motion_module_kwargs=motion_module_kwargs,
@@ -221,6 +223,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
                 resnet_time_scale_shift=resnet_time_scale_shift,
                 unet_use_cross_frame_attention=unet_use_cross_frame_attention,
                 unet_use_temporal_attention=unet_use_temporal_attention,
+                use_inflated_groupnorm=use_inflated_groupnorm,
                 use_motion_module=use_motion_module and (res in motion_module_resolutions),
                 motion_module_type=motion_module_type,
                 motion_module_kwargs=motion_module_kwargs,
@@ -229,9 +232,10 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             prev_output_channel = output_channel
 
         # out
-        self.conv_norm_out = nn.GroupNorm(
-            num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=norm_eps
-        )
+        if use_inflated_groupnorm:
+            self.conv_norm_out = InflatedGroupNorm(num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=norm_eps)
+        else:
+            self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=norm_eps)
         self.conv_act = nn.SiLU()
         self.conv_out = InflatedConv3d(block_out_channels[0], out_channels, kernel_size=3, padding=1)
 

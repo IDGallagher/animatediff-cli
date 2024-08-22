@@ -129,8 +129,8 @@ def train_ad(
         OmegaConf.save(config, os.path.join(run_dir, 'config.yaml'))
 
     # set up scheduler
-    noise_scheduler = get_scheduler("ddpm", OmegaConf.to_container(noise_scheduler_kwargs))
-    zero_rank_print(f'Using scheduler "ddpm" ({noise_scheduler.__class__.__name__})', LogType.info)
+    noise_scheduler = get_scheduler("ddim", OmegaConf.to_container(noise_scheduler_kwargs))
+    zero_rank_print(f'Using scheduler "ddim" ({noise_scheduler.__class__.__name__})', LogType.info)
     logger.debug("Loading tokenizer...")
     tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(sd_model_path, subfolder="tokenizer")
     logger.debug("Loading text encoder...")
@@ -225,7 +225,7 @@ def train_ad(
     vae = vae.to(device=device_id)
 
     # Get the training dataset
-    train_dataloader = make_dataloader(**train_data, batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size)
+    train_dataloader = make_dataloader(**train_data, batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size*gradient_accumulation_steps)
 
     # Get the training iteration
     # if max_train_steps == -1:
@@ -267,7 +267,7 @@ def train_ad(
     first_epoch = 0
 
     # Only show the progress bar once on each machine.
-    progress_bar = tqdm(range(global_step, num_epochs*epoch_size), disable=not is_main_process)
+    progress_bar = tqdm(range(global_step, num_epochs*epoch_size*total_batch_size), disable=not is_main_process)
     progress_bar.set_description("Steps")
 
     # Support mixed-precision training
@@ -361,7 +361,8 @@ def train_ad(
 
             # Periodically validation
             actual_steps = global_step/gradient_accumulation_steps
-            if is_main_process and actual_steps in validation_steps_tuple or actual_steps % validation_steps == 0:
+            # if is_main_process and actual_steps in validation_steps_tuple or actual_steps % validation_steps == 0:
+            if False:
                 zero_rank_print("Validation")
 
                 # Validation pipeline
