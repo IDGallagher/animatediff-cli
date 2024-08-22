@@ -69,6 +69,7 @@ trainable_modules:
 unet_checkpoint_path: ""
 
 learning_rate:    1.e-4
+scale_lr:         True
 lr_scheduler:     "cosine"
 train_batch_size: 2
 gradient_accumulation_steps: 1

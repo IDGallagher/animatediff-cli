@@ -274,10 +274,10 @@ def train_ad(
     scaler = torch.amp.GradScaler('cuda') if mixed_precision_training else None
 
     def normalize_and_rescale(image):
-        # MEAN = [0.5, 0.5, 0.5]
-        # SD = [0.5, 0.5, 0.5]
-        MEAN = [0.485, 0.456, 0.406]
-        SD = [0.229, 0.224, 0.225]
+        MEAN = [0.5, 0.5, 0.5]
+        SD = [0.5, 0.5, 0.5]
+        # MEAN = [0.485, 0.456, 0.406]
+        # SD = [0.229, 0.224, 0.225]
         mean = torch.tensor(MEAN).view(1, 1, 3, 1, 1).to(image.device)
         std = torch.tensor(SD).view(1, 1, 3, 1, 1).to(image.device)
         return (image.float()/255.0 - mean) / std
@@ -361,8 +361,8 @@ def train_ad(
 
             # Periodically validation
             actual_steps = global_step/gradient_accumulation_steps
-            # if is_main_process and actual_steps in validation_steps_tuple or actual_steps % validation_steps == 0:
-            if False:
+            if is_main_process and actual_steps in validation_steps_tuple or actual_steps % validation_steps == 0:
+            # if False:
                 zero_rank_print("Validation")
 
                 # Validation pipeline
