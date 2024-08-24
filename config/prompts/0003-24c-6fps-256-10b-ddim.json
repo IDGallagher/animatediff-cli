@@ -1,12 +1,16 @@
 {
-  "name": "AD_v2_baseline",
+  "name": "24_context_6fps_10b_256_mm",
   "base": "",
   "path": "data/models/realisticVisionV60B1_v51VAE.safetensors",
-  "motion_module": "models/motion-module/mm_sd_v15_v2.ckpt",
+  "motion_module": "models/motion-module/24_context_6fps_10b_256_mm.pth",
   "compile": false,
   "seed": [
     1234
   ],
+  "width": 512,
+  "height": 512,
+  "context": 24,
+  "length": 48,
   "scheduler": "ddim",
   "steps": 25,
   "guidance_scale": 7.5,

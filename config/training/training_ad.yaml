@@ -21,7 +21,7 @@ unet_additional_kwargs:
     temporal_position_encoding_max_len : 32
     temporal_attention_dim_div         : 1
     zero_initialize                    : False
-    rotary_position_encoding           : False
+    rotary_position_encoding           : false
 
 noise_scheduler_kwargs:
   num_train_timesteps: 1000
@@ -39,12 +39,13 @@ train_data:
 
   # csv_path:        "./data/test.csv"
   # video_folder:    "./data/videos"
-  sample_size:     256
+  sample_size:     512
   target_fps:      6
   sample_n_frames: 16
 
   use_lion_optim: True
   use_clipping: True
+  # adapter_lora_path: ""
   adapter_lora_path: "data/models/motion-module/v3_sd15_adapter.ckpt"
   adapter_lora_scale: 1
 
@@ -68,15 +69,15 @@ trainable_modules:
 
 unet_checkpoint_path: ""
 
-learning_rate:    1.e-4
-scale_lr:         True
+learning_rate:    1.e-5
+scale_lr:         False
 lr_scheduler:     "cosine"
-train_batch_size: 2
-gradient_accumulation_steps: 1
-num_workers: 2
+train_batch_size: 1
+gradient_accumulation_steps: 10
+num_workers: 1
 
 # epoch_size:           10000000
-epoch_size:           1000
+epoch_size:           10001
 num_epochs:           1
 checkpointing_epochs: -1
 checkpointing_steps:  100

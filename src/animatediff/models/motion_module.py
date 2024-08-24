@@ -80,9 +80,11 @@ class VanillaTemporalModule(nn.Module):
         temporal_attention_dim_div=1,
         zero_initialize=True,
         rotary_position_encoding: bool = False,
+        rotary_max_freq: int = 48,
     ):
         super().__init__()
         self.rotary_position_encoding = rotary_position_encoding
+        self.rotary_max_freq = rotary_max_freq
         self.attention_head_dim=in_channels // num_attention_heads // temporal_attention_dim_div
         self.temporal_transformer = TemporalTransformer3DModel(
         # self.temporal_transformer = TemporalTransformer3DModelModified(
@@ -105,7 +107,7 @@ class VanillaTemporalModule(nn.Module):
 
         rotary_embed = None
         if self.rotary_position_encoding:
-            rotary_embed = RotaryEmbedding(dim = self.attention_head_dim, freqs_for='pixel', max_freq=48).to(input_tensor.device)
+            rotary_embed = RotaryEmbedding(dim = self.attention_head_dim, freqs_for='pixel', max_freq=self.rotary_max_freq).to(input_tensor.device)
             # rotary_embed = RotaryEmbedding(dim = self.attention_head_dim).to(input_tensor.device)
 #  get_1d_rotary_pos_embed(self.attention_head_dim, input_tensor.shape[2], use_real=True)
 
@@ -396,6 +398,96 @@ class VersatileAttention(Attention):
             hidden_states = rearrange(hidden_states, "(b d) f c -> (b f) d c", d=d)
 
         return hidden_states
+
+# class VersatileAttention(Attention):
+#     def __init__(
+#             self,
+#             attention_mode                     = None,
+#             cross_frame_attention_mode         = None,
+#             temporal_position_encoding         = False,
+#             temporal_position_encoding_max_len = 24,
+#             rotary_position_encoding: bool = False,
+#             *args, **kwargs
+#         ):
+#         super().__init__(*args, **kwargs)
+#         assert attention_mode == "Temporal"
+
+#         self.attention_mode = attention_mode
+#         self.is_cross_attention = kwargs["cross_attention_dim"] is not None
+
+#         self.pos_encoder = PositionalEncoding(
+#             kwargs["query_dim"],
+#             dropout=0.,
+#             max_len=temporal_position_encoding_max_len
+#         ) if (temporal_position_encoding and attention_mode == "Temporal") else None
+
+#     def extra_repr(self):
+#         return f"(Module Info) Attention_Mode: {self.attention_mode}, Is_Cross_Attention: {self.is_cross_attention}"
+
+#     def forward(self, hidden_states, encoder_hidden_states=None, attention_mask=None, video_length=None, rotary_embed: Optional[RotaryEmbedding] = None):
+#         batch_size, sequence_length, _ = hidden_states.shape
+
+#         if self.attention_mode == "Temporal":
+#             d = hidden_states.shape[1]
+#             hidden_states = rearrange(hidden_states, "(b f) d c -> (b d) f c", f=video_length)
+
+#             if self.pos_encoder is not None:
+#                 hidden_states = self.pos_encoder(hidden_states)
+
+#             encoder_hidden_states = repeat(encoder_hidden_states, "b n c -> (b d) n c", d=d) if encoder_hidden_states is not None else encoder_hidden_states
+#         else:
+#             raise NotImplementedError
+
+#         encoder_hidden_states = encoder_hidden_states
+
+#         if self.group_norm is not None:
+#             hidden_states = self.group_norm(hidden_states.transpose(1, 2)).transpose(1, 2)
+
+#         query = self.to_q(hidden_states)
+#         dim = query.shape[-1]
+#         query = self.head_to_batch_dim(query)
+
+#         if self.added_kv_proj_dim is not None:
+#             raise NotImplementedError
+
+#         encoder_hidden_states = encoder_hidden_states if encoder_hidden_states is not None else hidden_states
+#         key = self.to_k(encoder_hidden_states)
+#         value = self.to_v(encoder_hidden_states)
+
+#         key = self.head_to_batch_dim(key)
+#         value = self.head_to_batch_dim(value)
+
+#         if attention_mask is not None:
+#             if attention_mask.shape[-1] != query.shape[1]:
+#                 target_length = query.shape[1]
+#                 attention_mask = F.pad(attention_mask, (0, target_length), value=0.0)
+#                 attention_mask = attention_mask.repeat_interleave(self.heads, dim=0)
+
+#         # # attention, what we cannot get enough of
+#         # if self._use_memory_efficient_attention_xformers:
+#         #     hidden_states = self._memory_efficient_attention_xformers(query, key, value, attention_mask)
+#         #     # Some versions of xformers return output in fp32, cast it back to the dtype of the input
+#         #     hidden_states = hidden_states.to(query.dtype)
+#         # else:
+#         #     if self._slice_size is None or query.shape[0] // self._slice_size == 1:
+#         #         hidden_states = self._attention(query, key, value, attention_mask)
+#         #     else:
+#         #         hidden_states = self._sliced_attention(query, key, value, sequence_length, dim, attention_mask)
+
+#         attention_probs = self.get_attention_scores(query, key, attention_mask)
+#         hidden_states = torch.bmm(attention_probs, value)
+#         hidden_states = self.batch_to_head_dim(hidden_states)
+
+#         # linear proj
+#         hidden_states = self.to_out[0](hidden_states)
+
+#         # dropout
+#         hidden_states = self.to_out[1](hidden_states)
+
+#         if self.attention_mode == "Temporal":
+#             hidden_states = rearrange(hidden_states, "(b d) f c -> (b f) d c", d=d)
+
+#         return hidden_states
 
 class RopeAttnProcessor2_0:
     r"""

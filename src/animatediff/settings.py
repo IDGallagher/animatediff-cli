@@ -87,8 +87,12 @@ class InferenceConfig(BaseSettings):
 
 @lru_cache(maxsize=2)
 def get_infer_config(
-    config_path: Path = get_dir("config").joinpath("inference/default.json"),
+    config_path_str: str = "",
 ) -> InferenceConfig:
+    if config_path_str == "":
+        config_path = get_dir("config").joinpath("inference/default.json")
+    else:
+        config_path = get_dir("config").joinpath(config_path_str)
     settings = InferenceConfig(json_config_path=config_path)
     return settings
 
@@ -112,6 +116,11 @@ class ModelConfig(BaseSettings):
     input_images: Optional[dict[int, str]] = Field(None) # Images to be embedded with IPA
     interpolate_images: bool = Field(False) # Interpolate between 2 image embeddings but don't use MotionPredictor
     video_fps: int = 8
+    model_config: str = ""
+    context: int = 16
+    length: int = 16
+    width: int = 512
+    height: int = 512
     class Config(JsonConfig):
         json_config_path: Path
 

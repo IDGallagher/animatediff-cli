@@ -7,6 +7,10 @@
   "seed": [
     1234
   ],
+  "width": 512,
+  "height": 512,
+  "context": 16,
+  "length": 32,
   "scheduler": "ddim",
   "steps": 25,
   "guidance_scale": 7.5,

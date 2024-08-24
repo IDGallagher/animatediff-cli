@@ -190,51 +190,6 @@ def generate(
             help="Path to a prompt configuration JSON file",
         ),
     ] = Path("config/prompts/01-ToonYou.json"),
-    width: Annotated[
-        int,
-        typer.Option(
-            "--width",
-            "-W",
-            min=128,
-            max=3840,
-            help="Width of generated frames",
-            rich_help_panel="Generation",
-        ),
-    ] = 512,
-    height: Annotated[
-        int,
-        typer.Option(
-            "--height",
-            "-H",
-            min=128,
-            max=3840,
-            help="Height of generated frames",
-            rich_help_panel="Generation",
-        ),
-    ] = 512,
-    length: Annotated[
-        int,
-        typer.Option(
-            "--length",
-            "-L",
-            min=1,
-            max=10000,
-            help="Number of frames to generate",
-            rich_help_panel="Generation",
-        ),
-    ] = 16,
-    context: Annotated[
-        Optional[int],
-        typer.Option(
-            "--context",
-            "-C",
-            min=1,
-            max=64,
-            help="Number of frames to condition on (default: max of <length> or 24)",
-            show_default=False,
-            rich_help_panel="Generation",
-        ),
-    ] = None,
     overlap: Annotated[
         Optional[int],
         typer.Option(
@@ -359,10 +314,13 @@ def generate(
     config_path = config_path.absolute()
     logger.info(f"Using generation config: {relative_path(config_path)}")
     model_config: ModelConfig = get_model_config(config_path)
-    infer_config: InferenceConfig = get_infer_config()
+    infer_config: InferenceConfig = get_infer_config(model_config.model_config)
 
     set_tensor_interpolation_method( model_config.tensor_interpolation_slerp )
-
+    length = model_config.length
+    context = model_config.context
+    width = model_config.width
+    height = model_config.height
     # set sane defaults for context, overlap, and stride if not supplied
     context, overlap, stride = get_context_params(length, context, overlap, stride)
 
@@ -376,7 +334,7 @@ def generate(
     # get a timestamp for the output directory
     time_str = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     # make the output directory
-    save_dir = out_dir.joinpath(f"{time_str}-{model_config.save_name}")
+    save_dir = out_dir.joinpath(f"{config_path.stem.lower()}-{time_str}")
     save_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Will save outputs to ./{relative_path(save_dir)}")
 
