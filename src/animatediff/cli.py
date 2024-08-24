@@ -312,6 +312,14 @@ def generate(
     set_diffusers_verbosity_error()
 
     config_path = config_path.absolute()
+
+    if config_path.stem.isdigit():
+        prompt_files = list(Path("config/prompts").glob(f"{config_path.stem}*.json"))
+        if prompt_files:
+            config_path = prompt_files[0]
+        else:
+            raise FileNotFoundError(f"No prompt config file found starting with {config_path.stem} in 'config/prompts'.")
+
     logger.info(f"Using generation config: {relative_path(config_path)}")
     model_config: ModelConfig = get_model_config(config_path)
     infer_config: InferenceConfig = get_infer_config(model_config.model_config)
