@@ -183,10 +183,6 @@ def generate(
         typer.Option(
             "--config-path",
             "-c",
-            path_type=Path,
-            exists=True,
-            readable=True,
-            dir_okay=False,
             help="Path to a prompt configuration JSON file",
         ),
     ] = Path("config/prompts/01-ToonYou.json"),
