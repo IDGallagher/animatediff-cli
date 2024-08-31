@@ -45,19 +45,18 @@ train_data:
 
   use_lion_optim: True
   use_clipping: True
-  # adapter_lora_path: ""
-  adapter_lora_path: "data/models/motion-module/v3_sd15_adapter.ckpt"
+  adapter_lora_path: ""
+  # adapter_lora_path: "data/models/motion-module/v3_sd15_adapter.ckpt"
   adapter_lora_scale: 1
 
 validation_data:
   prompts:
-    - "Angry porcupine fishe swim on the reef in search of food. amazing, beautiful underwater marine life world of sea creatures in red sea. scuba diving and tourism"
-    - "b&w photo of 42 y.o man in black clothes, bald, face, half body, body, high detailed skin, skin pores, coastline, overcast weather, wind, waves, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3"
-    - "close up photo of a rabbit, forest, haze, halation, bloom, dramatic atmosphere, centred, rule of thirds, 200mm 1.4f macro shot"
-    - "photo of coastline, rocks, storm weather, wind, waves, lightning, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3"
-    - "night, b&w photo of old house, post apocalypse, forest, storm weather, wind, rocks, 8k uhd, dslr, soft lighting, high quality, film grain"
+    - "Handheld shot of frustrated businesswoman in formalwear and face mask pushed to her chin sitting at desk in office during covid-19 outbreak. she is trying to call someone and reading documents"
+    - "Two cows eating hay"
+    - "b&w photo of 42 y.o man in black clothes, bald, face, half body, body, high detailed skin, skin pores, coastline, overcast weather, wind, waves, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3",
+    "close up photo of a rabbit, forest, haze, halation, bloom, dramatic atmosphere, centred, rule of thirds, 200mm 1.4f macro shot"
   num_inference_steps: 25
-  guidance_scale: 7.5
+  guidance_scale: 8
   context_frames: 16
   context_stride: 1
   context_overlap: 4
