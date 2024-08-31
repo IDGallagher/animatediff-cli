@@ -1,17 +1,17 @@
 {
-  "name": "0007-24c-6fps-256-1b-dom-pix-RoPE",
+  "name": "0009-16c-6fps-512-b2g5-dom",
   "base": "",
-  "model_config": "inference/rope.json",
+  "model_config": "inference/default.json",
   "path": "data/models/realisticVisionV60B1_v51VAE.safetensors",
-  "motion_module": "models/motion-module/0007-24c-6fps-256-1b-dom-pix-RoPE.pth",
+  "motion_module": "models/motion-module/0009-16c-6fps-512-b2g5-dom.pth",
   "compile": false,
   "seed": [
     1234
   ],
   "width": 512,
   "height": 512,
-  "context": 24,
-  "length": 48,
+  "context": 16,
+  "length": 32,
   "video_fps":  6,
   "scheduler": "ddim",
   "steps": 25,

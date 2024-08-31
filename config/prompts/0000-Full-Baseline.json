@@ -1,22 +1,19 @@
 {
-  "name": "0007-24c-6fps-256-1b-dom-pix-RoPE",
+  "name": "full_baseline",
   "base": "",
-  "model_config": "inference/rope.json",
-  "path": "data/models/realisticVisionV60B1_v51VAE.safetensors",
-  "motion_module": "models/motion-module/0007-24c-6fps-256-1b-dom-pix-RoPE.pth",
+  "path": "data/models/sd/stable-diffusion-v1-5",
+  "motion_module": "models/motion-module/mm_sd_v15_v2.ckpt",
   "compile": false,
   "seed": [
-    1234
+    123456
   ],
   "width": 512,
   "height": 512,
-  "context": 24,
-  "length": 48,
-  "video_fps":  6,
+  "context": 16,
+  "length": 32,
   "scheduler": "ddim",
   "steps": 25,
   "guidance_scale": 7.5,
-  "clip_skip": 1,
   "prompts": [
     "Handheld shot of frustrated businesswoman in formalwear and face mask pushed to her chin sitting at desk in office during covid-19 outbreak. she is trying to call someone and reading documents",
     "Two cows eating hay",
