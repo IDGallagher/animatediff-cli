@@ -20,6 +20,7 @@ import torchvision
 from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline
 from diffusers.models import UNet2DConditionModel
 from diffusers.optimization import get_scheduler as get_lr_scheduler
+from diffusers.utils.torch_utils import randn_tensor
 from einops import rearrange
 from lion_pytorch import Lion
 from omegaconf import OmegaConf
@@ -102,6 +103,8 @@ def train_ad(
     is_main_process = global_rank == 0
 
     seed = global_seed + global_rank
+    train_generator = torch.Generator(device="cpu")
+    train_generator.manual_seed(seed)
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -282,17 +285,17 @@ def train_ad(
         std = torch.tensor(SD).view(1, 1, 3, 1, 1).to(image.device)
         return (image.float()/255.0 - mean) / std
 
-    def add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length):
+    def add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length, generator):
         latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
         # Sample noise that we'll add to the latents
-        noise = torch.randn_like(latents)
+        noise = randn_tensor(latents.shape, generator=generator, device=latents.device, dtype=latents.dtype)
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (batch_size,), device=device_id).long()
         noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
         return noise, noisy_latents, timesteps, False
 
-    def add_noise_random_timesteps(noise_scheduler, latents, batch_size, video_length):
+    def add_noise_random_timesteps(noise_scheduler, latents, batch_size, video_length, generator):
         # Sample noise that we'll add to the latents
-        noise = torch.randn_like(latents)
+        noise = randn_tensor(latents.shape, generator=generator, device=latents.device, dtype=latents.dtype)
         timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (batch_size * video_length,), device=device_id).long()
         noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
         noisy_latents = rearrange(noisy_latents, "(b f) c h w -> b c f h w", f=video_length)
@@ -300,7 +303,7 @@ def train_ad(
         timesteps = rearrange(timesteps, '(b f) -> b f', f=video_length)
         return noise, noisy_latents, timesteps, False
 
-    def add_noise_sequential_timesteps(noise_scheduler, latents, batch_size, video_length):
+    def add_noise_sequential_timesteps(noise_scheduler, latents, batch_size, video_length, generator):
         target_partitions = 2
         target_steps = video_length * target_partitions #32
 
@@ -316,7 +319,7 @@ def train_ad(
         timesteps = timesteps[start_idx:end_idx].to(device_id).long()
         print(f"timesteps {timesteps}")
 
-        noise = torch.randn_like(latents)
+        noise = randn_tensor(latents.shape, generator=generator, device=latents.device, dtype=latents.dtype)
         noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
         noisy_latents = rearrange(noisy_latents, "(b f) c h w -> b c f h w", f=video_length)
         noise = rearrange(noise, "(b f) c h w -> b c f h w", f=video_length)
@@ -377,8 +380,8 @@ def train_ad(
                     )
                 validation_pipeline.enable_vae_slicing()
 
-                generator = torch.Generator(device="cpu")
-                generator.manual_seed(global_seed)
+                val_generator = torch.Generator(device="cpu")
+                val_generator.manual_seed(validation_data.get("seed"))
 
                 height = train_data.sample_size[0] if not isinstance(train_data.sample_size, int) else train_data.sample_size
                 width  = train_data.sample_size[1] if not isinstance(train_data.sample_size, int) else train_data.sample_size
@@ -390,7 +393,7 @@ def train_ad(
                         with torch.inference_mode(True):
                             pipeline_output = validation_pipeline(
                                 prompt,
-                                generator    = generator,
+                                generator    = val_generator,
                                 video_length = train_data.sample_n_frames,
                                 height       = height,
                                 width        = width,
@@ -405,7 +408,7 @@ def train_ad(
                         with torch.inference_mode(True):
                             pipeline_output = validation_pipeline(
                                 prompt,
-                                generator           = generator,
+                                generator           = val_generator,
                                 height              = height,
                                 width               = width,
                                 num_inference_steps = validation_data.get("num_inference_steps", 25),
@@ -439,9 +442,9 @@ def train_ad(
                 latents = latents * 0.18215
 
             zero_rank_print("Sample noise", LogType.debug)
-            # noise, noisy_latents, timesteps, lookahead_denoising = add_noise_random_timesteps(noise_scheduler, latents, batch_size, video_length)
-            noise, noisy_latents, timesteps, lookahead_denoising = add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length)
-            # noise, noisy_latents, timesteps, lookahead_denoising = add_noise_sequential_timesteps(noise_scheduler, latents, batch_size, video_length)
+            # noise, noisy_latents, timesteps, lookahead_denoising = add_noise_random_timesteps(noise_scheduler, latents, batch_size, video_length, generator=train_generator)
+            noise, noisy_latents, timesteps, lookahead_denoising = add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length, generator=train_generator)
+            # noise, noisy_latents, timesteps, lookahead_denoising = add_noise_sequential_timesteps(noise_scheduler, latents, batch_size, video_length, generator=train_generator)
             zero_rank_print(f"Lookahead {lookahead_denoising}")
 
             zero_rank_print(f"noise {noise.shape}", LogType.debug) #[2, 4, 16, 32, 32]

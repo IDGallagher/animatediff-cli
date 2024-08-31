@@ -62,6 +62,7 @@ validation_data:
   context_stride: 1
   context_overlap: 4
   fps: 6
+  seed: 123456
 
 
 trainable_modules:
