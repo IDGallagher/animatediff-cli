@@ -387,7 +387,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
             timesteps = timesteps[None].to(sample.device)
 
         # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
-        print(f"Sample {sample.shape} Timesteps {timesteps.shape}")
+        # print(f"Sample {sample.shape} Timesteps {timesteps.shape}")
         # timesteps = timesteps.expand(sample.shape[0])
 
         if timesteps.shape[0] < sample.shape[0]:
@@ -396,7 +396,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         if len(timesteps.shape) > 1:
             timesteps = rearrange(timesteps, 'n d -> (n d)')
         # timesteps = repeat(timesteps, 'n -> (r n)', r=sample.shape[0])
-        print(f"UNET time {timesteps}")
+        # print(f"UNET time {timesteps}")
 
         t_emb = self.time_proj(timesteps)
         # print(f"t_emb {t_emb.shape}")
@@ -430,7 +430,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         # 2. pre-process
         sample = self.conv_in(sample)
 
-        print(f"Preprocessed {sample.shape} - enc hidden {encoder_hidden_states.shape}")
+        # print(f"Preprocessed {sample.shape} - enc hidden {encoder_hidden_states.shape}")
 
         # 3. down
         down_block_res_samples = (sample,)

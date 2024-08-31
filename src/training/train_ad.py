@@ -377,7 +377,7 @@ def train_ad(
                     )
                 validation_pipeline.enable_vae_slicing()
 
-                generator = torch.Generator(device=vae.device)
+                generator = torch.Generator(device="cpu")
                 generator.manual_seed(global_seed)
 
                 height = train_data.sample_size[0] if not isinstance(train_data.sample_size, int) else train_data.sample_size

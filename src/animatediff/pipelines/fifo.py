@@ -526,8 +526,8 @@ class FifoPipeline(AnimationPipeline):
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t).to(self.unet.device, self.unet.dtype)
                 # Get the text and image embeds for this context
                 cur_prompt = get_frame_embeds(context, init_latents.shape[2])
-                print(f"cur_prompt {cur_prompt.shape}")
-                print(f"input_latents {latent_model_input.shape}")
+                # print(f"cur_prompt {cur_prompt.shape}")
+                # print(f"input_latents {latent_model_input.shape}")
                 # Predict the noise for each frame in this context at timestep t
                 noise_pred = self.unet(
                     latent_model_input,
@@ -603,7 +603,7 @@ class FifoPipeline(AnimationPipeline):
                 input_latents = self.scheduler.scale_model_input(input_latents, t).to(self.unet.device, self.unet.dtype)
 
                 cur_prompt = get_frame_embeds(context, video_length).to(self.unet.device, self.unet.dtype)
-                print(f"cur_prompt {cur_prompt.shape}")
+                # print(f"cur_prompt {cur_prompt.shape}")
 
                 # UNET
                 noise_pred = self.unet(

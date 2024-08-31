@@ -124,6 +124,7 @@ def create_pipeline(
     # I'll deal with LoRA later...
 
     logger.info("Creating AnimationPipeline...")
+
     # pipeline = FifoPipeline(
     pipeline = AnimationPipeline(
         vae=vae,
@@ -169,12 +170,12 @@ def run_inference(
     if prompt is None and prompt_map is None:
         raise ValueError("prompt and prompt_map cannot both be None, one must be provided")
 
-    out_dir = Path(out_dir)  # ensure out_dir is a Path
-
-    if seed != -1:
-        torch.manual_seed(seed)
-    else:
+    generator = torch.Generator(device="cpu")
+    if seed == -1:
         seed = torch.seed()
+    generator.manual_seed(seed)
+
+    out_dir = Path(out_dir)  # ensure out_dir is a Path
 
     pos_image_embeds, neg_image_embeds, image_embed_frames = None, None, []
     if video_tensor is not None:
@@ -230,6 +231,7 @@ def run_inference(
             logger.debug(f"Processed image embeds for {len(pil_images)} images")
 
     with torch.inference_mode(True):
+
         pipeline_output = pipeline(
             prompt=prompt,
             prompt_map=prompt_map,
@@ -248,7 +250,8 @@ def run_inference(
             clip_skip=clip_skip,
             pos_image_embeds=pos_image_embeds,
             neg_image_embeds=neg_image_embeds,
-            image_embed_frames=image_embed_frames
+            image_embed_frames=image_embed_frames,
+            generator=generator,
         )
     logger.info("Generation complete, saving...")
 
