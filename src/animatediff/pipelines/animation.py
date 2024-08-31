@@ -789,8 +789,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
 
                     # Get the text and image embeds for this context
                     cur_prompt = get_frame_embeds(context, latents.shape[2])
-                    print(f"cur_prompt {cur_prompt.shape}")
-                    print(f"input_latents {latent_model_input.shape}")
+                    # print(f"cur_prompt {cur_prompt.shape}")
+                    # print(f"input_latents {latent_model_input.shape}")
                     # Predict the noise for each frame in this context at timestep t
                     pred = self.unet(
                         latent_model_input,
