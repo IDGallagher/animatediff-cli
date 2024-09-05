@@ -46,6 +46,59 @@ from .utils import LogType, apply_lora, zero_rank_partial
 logger = logging.getLogger(__name__)
 zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
 
+def normalize_and_rescale(image):
+    MEAN = [0.5, 0.5, 0.5]
+    SD = [0.5, 0.5, 0.5]
+    # MEAN = [0.485, 0.456, 0.406]
+    # SD = [0.229, 0.224, 0.225]
+    mean = torch.tensor(MEAN).view(1, 1, 3, 1, 1).to(image.device)
+    std = torch.tensor(SD).view(1, 1, 3, 1, 1).to(image.device)
+    return (image.float()/255.0 - mean) / std
+
+def add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length, generator):
+    latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
+    # Sample noise that we'll add to the latents
+    noise = randn_tensor(latents.shape, generator=generator, device=latents.device, dtype=latents.dtype)
+    timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (batch_size,), device=device_id).long()
+    noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+    return noise, noisy_latents, timesteps, False
+
+def add_noise_random_timesteps(noise_scheduler, latents, batch_size, video_length, generator):
+    # Sample noise that we'll add to the latents
+    noise = randn_tensor(latents.shape, generator=generator, device=latents.device, dtype=latents.dtype)
+    timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (batch_size * video_length,), device=device_id).long()
+    noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+    noisy_latents = rearrange(noisy_latents, "(b f) c h w -> b c f h w", f=video_length)
+    noise = rearrange(noise, "(b f) c h w -> b c f h w", f=video_length)
+    timesteps = rearrange(timesteps, '(b f) -> b f', f=video_length)
+    return noise, noisy_latents, timesteps, False
+
+def add_noise_sequential_timesteps(noise_scheduler, latents, batch_size, video_length, generator):
+    target_partitions = 2
+    target_steps = video_length * target_partitions #32
+
+    # Sample noise that we'll add to the latents
+    noise_scheduler.set_timesteps(target_steps)
+    timesteps = noise_scheduler.timesteps
+    # timesteps = torch.flip(timesteps, dims=[0])
+    timesteps = torch.cat([torch.full((video_length//2,), timesteps[0]), timesteps])
+
+    rank = random.randint(0, 2 * target_partitions - 1)
+    start_idx = rank*(video_length // 2)
+    end_idx = start_idx + video_length
+    timesteps = timesteps[start_idx:end_idx].to(device_id).long()
+    print(f"timesteps {timesteps}")
+
+    noise = randn_tensor(latents.shape, generator=generator, device=latents.device, dtype=latents.dtype)
+    noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+    noisy_latents = rearrange(noisy_latents, "(b f) c h w -> b c f h w", f=video_length)
+    noise = rearrange(noise, "(b f) c h w -> b c f h w", f=video_length)
+    timesteps = rearrange(timesteps, '(b f) -> b f', f=video_length)
+
+    print(f"Timesteps {timesteps}")
+
+    return noise, noisy_latents, timesteps, True
+
 def train_ad(
     image_finetune: bool,
 
@@ -103,10 +156,6 @@ def train_ad(
     is_main_process = global_rank == 0
 
     seed = global_seed + global_rank
-    train_generator = torch.Generator(device="cpu")
-    train_generator.manual_seed(seed)
-    torch.manual_seed(seed)
-    np.random.seed(seed)
 
     sample_start_time = time.time()
     sample_end_time = time.time()
@@ -131,6 +180,12 @@ def train_ad(
         os.makedirs(f"checkpoints", exist_ok=True)
         OmegaConf.save(config, os.path.join(run_dir, 'config.yaml'))
 
+    train_generator = torch.Generator(device="cpu")
+    train_generator.manual_seed(seed)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
     # set up scheduler
     noise_scheduler = get_scheduler("ddim", OmegaConf.to_container(noise_scheduler_kwargs))
     zero_rank_print(f'Using scheduler "ddim" ({noise_scheduler.__class__.__name__})', LogType.info)
@@ -145,8 +200,8 @@ def train_ad(
     if not image_finetune:
         unet = UNet3DConditionModel.from_pretrained_2d(
             sd_model_path, subfolder="unet",
-            motion_module_path="data/models/motion-module/mm_sd_v15_v2.safetensors",
-            # motion_module_path="data/models/motion-module/mm_sd_v15_v2.ckpt",
+            # motion_module_path="data/models/motion-module/mm_sd_v15_v2.safetensors",
+            motion_module_path="data/models/motion-module/mm_sd_v15_v2.ckpt",
             unet_additional_kwargs=OmegaConf.to_container(unet_additional_kwargs)
         )
     else:
@@ -228,7 +283,7 @@ def train_ad(
     vae = vae.to(device=device_id)
 
     # Get the training dataset
-    train_dataloader = make_dataloader(**train_data, batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size*gradient_accumulation_steps)
+    train_dataloader = make_dataloader(**train_data, batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size*gradient_accumulation_steps, seed=seed)
 
     # Get the training iteration
     # if max_train_steps == -1:
@@ -276,59 +331,6 @@ def train_ad(
     # Support mixed-precision training
     scaler = torch.amp.GradScaler('cuda') if mixed_precision_training else None
 
-    def normalize_and_rescale(image):
-        MEAN = [0.5, 0.5, 0.5]
-        SD = [0.5, 0.5, 0.5]
-        # MEAN = [0.485, 0.456, 0.406]
-        # SD = [0.229, 0.224, 0.225]
-        mean = torch.tensor(MEAN).view(1, 1, 3, 1, 1).to(image.device)
-        std = torch.tensor(SD).view(1, 1, 3, 1, 1).to(image.device)
-        return (image.float()/255.0 - mean) / std
-
-    def add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length, generator):
-        latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
-        # Sample noise that we'll add to the latents
-        noise = randn_tensor(latents.shape, generator=generator, device=latents.device, dtype=latents.dtype)
-        timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (batch_size,), device=device_id).long()
-        noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
-        return noise, noisy_latents, timesteps, False
-
-    def add_noise_random_timesteps(noise_scheduler, latents, batch_size, video_length, generator):
-        # Sample noise that we'll add to the latents
-        noise = randn_tensor(latents.shape, generator=generator, device=latents.device, dtype=latents.dtype)
-        timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (batch_size * video_length,), device=device_id).long()
-        noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
-        noisy_latents = rearrange(noisy_latents, "(b f) c h w -> b c f h w", f=video_length)
-        noise = rearrange(noise, "(b f) c h w -> b c f h w", f=video_length)
-        timesteps = rearrange(timesteps, '(b f) -> b f', f=video_length)
-        return noise, noisy_latents, timesteps, False
-
-    def add_noise_sequential_timesteps(noise_scheduler, latents, batch_size, video_length, generator):
-        target_partitions = 2
-        target_steps = video_length * target_partitions #32
-
-        # Sample noise that we'll add to the latents
-        noise_scheduler.set_timesteps(target_steps)
-        timesteps = noise_scheduler.timesteps
-        # timesteps = torch.flip(timesteps, dims=[0])
-        timesteps = torch.cat([torch.full((video_length//2,), timesteps[0]), timesteps])
-
-        rank = random.randint(0, 2 * target_partitions - 1)
-        start_idx = rank*(video_length // 2)
-        end_idx = start_idx + video_length
-        timesteps = timesteps[start_idx:end_idx].to(device_id).long()
-        print(f"timesteps {timesteps}")
-
-        noise = randn_tensor(latents.shape, generator=generator, device=latents.device, dtype=latents.dtype)
-        noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
-        noisy_latents = rearrange(noisy_latents, "(b f) c h w -> b c f h w", f=video_length)
-        noise = rearrange(noise, "(b f) c h w -> b c f h w", f=video_length)
-        timesteps = rearrange(timesteps, '(b f) -> b f', f=video_length)
-
-        print(f"Timesteps {timesteps}")
-
-        return noise, noisy_latents, timesteps, True
-
     unet.train()
     for epoch in range(first_epoch, num_epochs):
         epoch_loss = 0
@@ -364,8 +366,8 @@ def train_ad(
 
             # Periodically validation
             actual_steps = global_step/gradient_accumulation_steps
-            if is_main_process and actual_steps in validation_steps_tuple or actual_steps % validation_steps == 0:
-            # if False:
+            # if is_main_process and actual_steps in validation_steps_tuple or actual_steps % validation_steps == 0:
+            if False:
                 zero_rank_print("Validation")
 
                 # Validation pipeline

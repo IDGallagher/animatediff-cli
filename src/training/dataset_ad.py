@@ -105,18 +105,18 @@ def make_sample(sample, sample_size, target_fps, sample_n_frames, is_image=False
 
     return pixel_values, caption, start_time
 
-def make_dataloader(shards, batch_size, num_workers, epoch_size, **kwargs):
+def make_dataloader(shards, batch_size, num_workers, epoch_size, seed, **kwargs):
     assert(epoch_size % batch_size == 0, f"Make epoch_size {epoch_size} divisible by batch_size {batch_size}")
-
-    dataset = wds.WebDataset(shards, handler=warn_and_continue, resampled=True, nodesplitter=wds.split_by_node) # , cache_dir="./tmp"
-    dataset = dataset.shuffle(1000).map(partial(make_sample, **kwargs), handler=warn_and_continue)
+    print(f"Dataloader seed {seed}")
+    dataset = wds.WebDataset(shards, handler=warn_and_continue, shardshuffle=100, resampled=False, detshuffle=True, seed=seed, nodesplitter=wds.split_by_node) # , cache_dir="./tmp"
+    dataset = dataset.map(partial(make_sample, **kwargs), handler=warn_and_continue)
 
     # For IterableDataset objects, the batching needs to happen in the dataset.
     dataset = dataset.batched(batch_size)
     dataloader = wds.WebLoader(dataset, batch_size=None, num_workers=num_workers)
 
     # We unbatch, shuffle, and rebatch to mix samples from different workers.
-    dataloader = dataloader.unbatched().shuffle(1000).batched(batch_size)
+    dataloader = dataloader.unbatched().batched(batch_size)
 
     # A resampled dataset is infinite size, but we can recreate a fixed epoch length.
     dataloader = dataloader.with_epoch(epoch_size // batch_size)

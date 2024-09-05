@@ -53,8 +53,8 @@ validation_data:
   prompts:
     - "Handheld shot of frustrated businesswoman in formalwear and face mask pushed to her chin sitting at desk in office during covid-19 outbreak. she is trying to call someone and reading documents"
     - "Two cows eating hay"
-    - "b&w photo of 42 y.o man in black clothes, bald, face, half body, body, high detailed skin, skin pores, coastline, overcast weather, wind, waves, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3",
-    "close up photo of a rabbit, forest, haze, halation, bloom, dramatic atmosphere, centred, rule of thirds, 200mm 1.4f macro shot"
+    - "b&w photo of 42 y.o man in black clothes, bald, face, half body, body, high detailed skin, skin pores, coastline, overcast weather, wind, waves, 8k uhd, dslr, soft lighting, high quality, film grain, Fujifilm XT3"
+    - "close up photo of a rabbit, forest, haze, halation, bloom, dramatic atmosphere, centred, rule of thirds, 200mm 1.4f macro shot"
   num_inference_steps: 25
   guidance_scale: 8
   context_frames: 16
@@ -83,7 +83,7 @@ checkpointing_epochs: -1
 checkpointing_steps:  100
 
 validation_steps:       100
-validation_steps_tuple: []
+validation_steps_tuple: [50]
 
 global_seed: 42
 mixed_precision_training: True

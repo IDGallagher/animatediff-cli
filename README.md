@@ -12,14 +12,17 @@ python ./src/animatediff/__main__.py generate -c config/prompts/ValidationCow.js
 python ./src/animatediff/__main__.py train motionpredictor -w -c config/training/training_mp.yaml
 python ./src/animatediff/__main__.py train animatediff -w -c config/training/training_ad.yaml
 
-python ./src/animatediff/__main__.py filter --input /workspace/animatediff-cli/training_ad-2024-08-06T17-04-53_animatediff.pth --output train_rando_512_mm.pth
+python ./src/animatediff/__main__.py filter --input /workspace/animatediff-cli/training_ad-2024-08-25T07-16-21_animatediff.pth --output data/models/motion-module/0011-16c-6fps-512-b1-full-presc-a100-dom.pth
 
-python ./src/animatediff/__main__.py generate -c config/prompts/ValidationCowRealVision.json -W 256 -H 256 -L 256
+python ./src/animatediff/__main__.py generate -c config/prompts/ValidationCowRealVision.json -W 256 -H 256 -L 24
 python ./src/animatediff/__main__.py generate -c config/prompts/IPAVideoTest.json -W 256 -H 256 -L 64
 
 
 python ./src/animatediff/__main__.py generate -c config/prompts/ValidationCowRealVision.json -W 512 -H 512 -L 16
 python ./src/animatediff/__main__.py generate -c config/prompts/IPAImageTest.json -W 512 -H 512 -L 256
+
+python ./src/animatediff/__main__.py generate -c 0000
+python ./src/animatediff/__main__.py train animatediff -c config/training/training_ad.yaml
 
 apt update -y
 apt upgrade -y
