@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
 
 # actual prediction function - shared between train and validate
-def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, zero_frequency_noise_ratio=0.0, return_loss=False, loss_scale=None, embedding_perturbation=0.0, mixed_precision_training: bool = True, image_finetune: bool = False):
+def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, generator, zero_frequency_noise_ratio=0.0, return_loss=False, loss_scale=None, embedding_perturbation=0.0, mixed_precision_training: bool = True, image_finetune: bool = False):
     with torch.no_grad():
         with torch.autocast('cuda', enabled=mixed_precision_training):
             pixel_values = batch[0].to(unet.device)
@@ -75,7 +75,7 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
         del texts, prompt_ids
 
         zero_rank_print("Sample noise", LogType.debug)
-        noise, noisy_latents, timesteps, lookahead_denoising = add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length, generator=train_generator, device=unet.device)
+        noise, noisy_latents, timesteps, lookahead_denoising = add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length, generator=generator, device=unet.device)
         zero_rank_print(f"Lookahead {lookahead_denoising}")
         zero_rank_print(f"noise {noise.shape}", LogType.debug) #[2, 4, 16, 32, 32]
         zero_rank_print(f"latents {latents.shape}", LogType.debug)
@@ -516,9 +516,7 @@ def train_ad(
                 torch.cuda.empty_cache()
                 gc.collect()
 
-
-
-            model_pred, target, loss = get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, return_loss=True, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune)
+            model_pred, target, loss = get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, train_generator, return_loss=True, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune)
 
             del target, model_pred
             torch.cuda.empty_cache()
