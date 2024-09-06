@@ -552,18 +552,17 @@ def train_ad(
                 sample_end_time = time.time()
                 sample_time = sample_end_time - sample_start_time
                 # Log to WandB
-                loss_step = sum(loss_log_step) / len(loss_log_step)
+                loss_mean = sum(loss_log_step) / len(loss_log_step)
                 loss_log_step = []
                 if is_main_process and step > 1 and (not is_debug) and use_wandb:
                     wandb.log({
-                        "train_loss": loss_step,
+                        "train_loss": loss_mean,
                         "lr": lr_scheduler.get_lr()[0],
                         "epoch": actual_steps // checkpointing_steps,
                         "sample_time": sample_time,
                         "data_wait_time": data_wait_time
                     }, step=global_step)
                     zero_rank_print(f"train_loss {loss.item() * gradient_accumulation_steps} epoch {epoch} sample_time {sample_time} data_wait_time {data_wait_time}", LogType.debug)
-                epoch_loss += loss.item() * gradient_accumulation_steps
 
                 zero_rank_print(f"Reset gradients at the beginning of the accumulation cycle", LogType.debug)
                 optimizer.zero_grad()
@@ -571,7 +570,7 @@ def train_ad(
             torch.cuda.empty_cache()
 
             # Update the progress bar
-            progress_bar.set_postfix(loss=epoch_loss / (step + 1))
+            progress_bar.set_postfix(loss=loss_mean)
             progress_bar.update()
             global_step += 1
             ### <<<< Training <<<< ###
