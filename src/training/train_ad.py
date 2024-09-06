@@ -451,8 +451,8 @@ def train_ad(
 
             # Periodically validation
             actual_steps = global_step/gradient_accumulation_steps
-            # if is_main_process and actual_steps in validation_steps_tuple or actual_steps % validation_steps == 0:
-            if False:
+            if is_main_process and actual_steps in validation_steps_tuple or actual_steps % validation_steps == 0:
+            # if False:
                 zero_rank_print("Validation")
 
                 # Validation pipeline
