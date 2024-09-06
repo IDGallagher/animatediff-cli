@@ -59,6 +59,18 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
             batch_size = pixel_values.shape[0]
             video_length = pixel_values.shape[1]
             pixel_values = normalize_and_rescale(pixel_values)
+
+            if sanity_check:
+                sanity_pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
+                if not image_finetune:
+                    for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
+                        pixel_value = pixel_value[None, ...]
+                        save_video(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{idx}'}.mp4", fps=fps)
+                else:
+                    for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
+                        pixel_value = pixel_value / 2. + 0.5
+                        torchvision.utils.save_image(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{idx}'}.png")
+
             zero_rank_print("Convert videos to latent space", LogType.debug)
             if not image_finetune:
                 pixel_values = rearrange(pixel_values, "b f c h w -> (b f) c h w")
@@ -68,17 +80,6 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
                 latents = vae.encode(pixel_values).latent_dist
                 latents = latents.sample()
             latents = latents * 0.18215
-
-        if sanity_check:
-            sanity_pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
-            if not image_finetune:
-                for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
-                    pixel_value = pixel_value[None, ...]
-                    save_video(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{idx}'}.mp4", fps=fps)
-            else:
-                for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
-                    pixel_value = pixel_value / 2. + 0.5
-                    torchvision.utils.save_image(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{idx}'}.png")
 
         del pixel_values, batch
 
