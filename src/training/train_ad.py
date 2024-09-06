@@ -117,9 +117,9 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
         #     loss_scale = loss_scale * mse_loss_weights.to(loss_scale.device)
         if lookahead_denoising:
             mid_point = model_pred.shape[2] // 2
-            loss = F.mse_loss(model_pred[:, :, mid_point:, :, :].float(), target[:, :, mid_point:, :, :].float(), reduction="none")
+            loss_mse = F.mse_loss(model_pred[:, :, mid_point:, :, :].float(), target[:, :, mid_point:, :, :].float(), reduction="none")
         else:
-            loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
+            loss_mse = F.mse_loss(model_pred.float(), target.float(), reduction="none")
 
         loss_scale = loss_scale.view(-1, 1, 1, 1).expand_as(loss_mse)
 
