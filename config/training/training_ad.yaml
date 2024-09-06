@@ -44,7 +44,7 @@ train_data:
   sample_n_frames: 16
 
   use_lion_optim: True
-  use_clipping: True
+  use_clipping: False
   adapter_lora_path: ""
   # adapter_lora_path: "data/models/motion-module/v3_sd15_adapter.ckpt"
   adapter_lora_scale: 1
