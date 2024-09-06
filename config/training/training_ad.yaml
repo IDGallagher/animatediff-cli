@@ -52,6 +52,10 @@ train_data:
 validation_data:
   shards:       "pipe:aws s3 cp s3://webvid-10m/val/{00000..00004}.tar -"
   val_size:     20
+  sample_size:     512
+  target_fps:      6
+  sample_n_frames: 16
+
   prompts:
     - "Handheld shot of frustrated businesswoman in formalwear and face mask pushed to her chin sitting at desk in office during covid-19 outbreak. she is trying to call someone and reading documents"
     - "Two cows eating hay"

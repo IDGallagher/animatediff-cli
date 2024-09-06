@@ -36,6 +36,7 @@ from animatediff.models.clip import CLIPSkipTextModel
 from animatediff.models.unet import UNet3DConditionModel
 from animatediff.pipelines.animation import AnimationPipeline
 from animatediff.schedulers import get_scheduler
+from animatediff.utils import isolate_rng
 from animatediff.utils.device import get_memory_format, get_model_dtypes
 from animatediff.utils.util import (relative_path, save_frames, save_images,
                                     save_video)
@@ -164,7 +165,6 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
         loss = loss_mse.mean()
 
         return model_pred, target, loss
-
     else:
         return model_pred, target
 
@@ -455,17 +455,22 @@ def train_ad(
             # Periodically validation
             actual_steps = global_step/gradient_accumulation_steps
 
-            if is_main_process and actual_steps % validation_steps == 0:
-                with torch.no_grad():
+            if is_main_process and actual_steps % validation_steps == 0 and actual_steps > 0:
+                with torch.no_grad(), isolate_rng():
+
+                    torch.manual_seed(validation_data.get("seed"))
+                    np.random.seed(validation_data.get("seed"))
+                    random.seed(validation_data.get("seed"))
+
                     val_generator = torch.Generator(device="cpu")
                     val_generator.manual_seed(validation_data.get("seed"))
 
                     loss_validation_epoch = []
-                    steps_pbar = tqdm(range(len(val_dataloader)), position=1, leave=False)
+                    steps_pbar = tqdm(range(validation_data.val_size), position=1, leave=False)
                     steps_pbar.set_description(f"Validation")
 
                     for val_step, val_batch in enumerate(val_dataloader):
-                        model_pred, target = get_model_prediction_and_target(val_batch, unet, vae, noise_scheduler, tokenizer, text_encoder, val_generator, run_dir, return_loss=True, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps, sanity_check=val_step==0)
+                        model_pred, target = get_model_prediction_and_target(val_batch, unet, vae, noise_scheduler, tokenizer, text_encoder, val_generator, run_dir, return_loss=False, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps, sanity_check=val_step==0)
 
                         loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                         del target, model_pred
