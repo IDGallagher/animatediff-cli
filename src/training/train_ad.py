@@ -505,8 +505,9 @@ def train_ad(
 
                 logging.info(f"Saved samples to {run_dir}")
                 del validation_pipeline, pipeline_output
-                torch.cuda.empty_cache()
-                gc.collect()
+
+            torch.cuda.empty_cache()
+            gc.collect()
 
             sample_start_time = time.time()
 
