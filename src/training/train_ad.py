@@ -52,6 +52,8 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
         with torch.autocast('cuda', enabled=mixed_precision_training):
             pixel_values = batch[0].to(unet.device)
             texts = batch[1]
+            batch_size = pixel_values.shape[0]
+            video_length = pixel_values.shape[1]
             pixel_values = normalize_and_rescale(pixel_values)
             zero_rank_print("Convert videos to latent space", LogType.debug)
             if not image_finetune:
@@ -62,8 +64,7 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
                 latents = vae.encode(pixel_values).latent_dist
                 latents = latents.sample()
             latents = latents * 0.18215
-            batch_size = pixel_values.shape[0]
-            video_length = pixel_values.shape[1]
+
         del pixel_values, batch
 
         zero_rank_print("Get text embedding", LogType.debug)
