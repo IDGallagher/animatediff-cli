@@ -47,11 +47,15 @@ logger = logging.getLogger(__name__)
 zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
 
 # actual prediction function - shared between train and validate
-def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, generator, zero_frequency_noise_ratio=0.0, return_loss=False, loss_scale=None, embedding_perturbation=0.0, mixed_precision_training: bool = True, image_finetune: bool = False):
+def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, generator, run_dir, cfg_random_null_text_ratio=0.0, zero_frequency_noise_ratio=0.0, return_loss=False, loss_scale=None, embedding_perturbation=0.0, mixed_precision_training: bool = True, image_finetune: bool = False, fps:int = 6, sanity_check: bool = False):
     with torch.no_grad():
         with torch.autocast('cuda', enabled=mixed_precision_training):
             pixel_values = batch[0].to(unet.device)
             texts = batch[1]
+
+            if cfg_random_null_text_ratio > 0:
+                texts = [name if random.random() > cfg_random_null_text_ratio else "" for name in texts]
+
             batch_size = pixel_values.shape[0]
             video_length = pixel_values.shape[1]
             pixel_values = normalize_and_rescale(pixel_values)
@@ -64,6 +68,17 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
                 latents = vae.encode(pixel_values).latent_dist
                 latents = latents.sample()
             latents = latents * 0.18215
+
+        if sanity_check:
+            sanity_pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
+            if not image_finetune:
+                for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
+                    pixel_value = pixel_value[None, ...]
+                    save_video(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{idx}'}.mp4", fps=fps)
+            else:
+                for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
+                    pixel_value = pixel_value / 2. + 0.5
+                    torchvision.utils.save_image(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{idx}'}.png")
 
         del pixel_values, batch
 
@@ -427,21 +442,9 @@ def train_ad(
 
     unet.train()
     for epoch in range(first_epoch, num_epochs):
-        epoch_loss = 0
         for step, batch in enumerate(train_dataloader):
-            sample_start_time = time.time()
-            data_wait_time = sample_start_time - sample_end_time
 
-            pixel_values = batch[0].to(device_id)
-            texts = batch[1]
-
-
-            pixel_values = normalize_and_rescale(pixel_values)
-            # zero_rank_print(f"Pixel shape {pixel_values}")
-            # pixel_values = rearrange(pixel_values, "b f h w c -> b f c h w")
-
-            if cfg_random_null_text:
-                texts = [name if random.random() > cfg_random_null_text_ratio else "" for name in texts]
+            data_wait_time = time.time() - sample_end_time
 
             # Data batch sanity check
             if epoch == first_epoch and step < 4:
@@ -518,7 +521,9 @@ def train_ad(
                 torch.cuda.empty_cache()
                 gc.collect()
 
-            model_pred, target, loss = get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, train_generator, return_loss=True, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune)
+            sample_start_time = time.time()
+
+            model_pred, target, loss = get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, train_generator, run_dir, cfg_random_null_text_ratio=cfg_random_null_text_ratio, return_loss=True, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps)
 
             del target, model_pred
             torch.cuda.empty_cache()
