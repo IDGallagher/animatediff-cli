@@ -80,10 +80,10 @@ num_workers: 1
 epoch_size:           10001
 num_epochs:           1
 checkpointing_epochs: -1
-checkpointing_steps:  100
+checkpointing_steps:  1000
 
-validation_steps:       100
-validation_steps_tuple: [50]
+validation_steps:       1000
+validation_steps_tuple: []
 
 global_seed: 42
 mixed_precision_training: True
