@@ -423,6 +423,7 @@ def train_ad(
 
     loss_epoch = []
     loss_log_step = []
+    loss_mean = 0
 
     unet.train()
     for epoch in range(first_epoch, num_epochs):
