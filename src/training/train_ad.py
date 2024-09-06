@@ -446,19 +446,6 @@ def train_ad(
 
             data_wait_time = time.time() - sample_end_time
 
-            # Data batch sanity check
-            if epoch == first_epoch and step < 4:
-                sanity_pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
-                if not image_finetune:
-                    for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
-                        pixel_value = pixel_value[None, ...]
-                        # save_frames(pixel_value, f"{output_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{global_rank}-{idx}'}")
-                        save_video(pixel_value.cpu(), f"{run_dir}/sanity_check/{step}-{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{step}-{idx}'}.mp4", fps=train_data.target_fps)
-                else:
-                    for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
-                        pixel_value = pixel_value / 2. + 0.5
-                        torchvision.utils.save_image(pixel_value.cpu(), f"{run_dir}/sanity_check/{step}-{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{step}-{idx}'}.png")
-
             ### >>>> Training >>>> ###
 
             # Periodically validation
@@ -523,7 +510,7 @@ def train_ad(
 
             sample_start_time = time.time()
 
-            model_pred, target, loss = get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, train_generator, run_dir, cfg_random_null_text_ratio=cfg_random_null_text_ratio, return_loss=True, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps)
+            model_pred, target, loss = get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, train_generator, run_dir, cfg_random_null_text_ratio=cfg_random_null_text_ratio, return_loss=True, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps, sanity_check=global_step==0)
 
             del target, model_pred
             torch.cuda.empty_cache()
