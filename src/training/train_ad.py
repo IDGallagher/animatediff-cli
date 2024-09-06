@@ -54,7 +54,7 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
             texts = batch[1]
 
             if cfg_random_null_text_ratio > 0:
-                texts = [name if random.random() > cfg_random_null_text_ratio else "" for name in texts]
+                texts = [name if torch.rand(1, generator=generator).item() > cfg_random_null_text_ratio else "" for name in texts]
 
             batch_size = pixel_values.shape[0]
             video_length = pixel_values.shape[1]
@@ -246,7 +246,8 @@ def train_ad(
     noise_scheduler_kwargs = None,
 
     validation_steps: int = 100,
-    validation_steps_tuple: Tuple = (-1,),
+    validation_gen_steps: int = 100,
+    validation_gen_steps_tuple: Tuple = (-1,),
 
     learning_rate: float = 3e-5,
     scale_lr: bool = False,
@@ -400,6 +401,8 @@ def train_ad(
     # Get the training dataset
     train_dataloader = make_dataloader(**train_data, batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size*gradient_accumulation_steps, seed=seed)
 
+    val_dataloader = make_dataloader(**validation_data, batch_size=1, num_workers=0, epoch_size=validation_data.val_size, seed=validation_data.seed)
+
     if scale_lr:
         learning_rate = (learning_rate * gradient_accumulation_steps * train_batch_size * num_processes)
 
@@ -451,9 +454,37 @@ def train_ad(
 
             # Periodically validation
             actual_steps = global_step/gradient_accumulation_steps
-            if is_main_process and actual_steps > 0 and (actual_steps in validation_steps_tuple or actual_steps % validation_steps) == 0:
+
+            if is_main_process and actual_steps % validation_steps == 0:
+                with torch.no_grad():
+                    val_generator = torch.Generator(device="cpu")
+                    val_generator.manual_seed(validation_data.get("seed"))
+
+                    loss_validation_epoch = []
+                    steps_pbar = tqdm(range(len(val_dataloader)), position=1, leave=False)
+                    steps_pbar.set_description(f"Validation")
+
+                    for val_step, val_batch in enumerate(val_dataloader):
+                        model_pred, target = get_model_prediction_and_target(val_batch, unet, vae, noise_scheduler, tokenizer, text_encoder, val_generator, run_dir, return_loss=True, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps, sanity_check=val_step==0)
+
+                        loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                        del target, model_pred
+
+                        loss_step = loss.detach().item()
+                        loss_validation_epoch.append(loss_step)
+
+                        steps_pbar.update(1)
+
+                    steps_pbar.close()
+
+                    loss_validation_local = sum(loss_validation_epoch) / len(loss_validation_epoch)
+                    wandb.log({
+                        "val_loss": loss_validation_local,
+                    }, step=global_step)
+
+            if is_main_process and actual_steps > 0 and (actual_steps in validation_gen_steps_tuple or actual_steps % validation_gen_steps) == 0:
             # if False:
-                zero_rank_print("Validation")
+                zero_rank_print("Validation Gen")
 
                 # Validation pipeline
                 if not image_finetune:
