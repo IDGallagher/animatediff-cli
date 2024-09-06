@@ -105,10 +105,10 @@ def make_sample(sample, sample_size, target_fps, sample_n_frames, is_image=False
 
     return pixel_values, caption, start_time
 
-def make_dataloader(shards, batch_size, num_workers, epoch_size, seed, **kwargs):
+def make_dataloader(shards, batch_size, num_workers, epoch_size, seed, shardshuffle, **kwargs):
     assert(epoch_size % batch_size == 0, f"Make epoch_size {epoch_size} divisible by batch_size {batch_size}")
     print(f"Dataloader seed {seed}")
-    dataset = wds.WebDataset(shards, handler=warn_and_continue, shardshuffle=100, resampled=False, detshuffle=True, seed=seed, nodesplitter=wds.split_by_node) # , cache_dir="./tmp"
+    dataset = wds.WebDataset(shards, handler=warn_and_continue, shardshuffle=shardshuffle, resampled=False, detshuffle=True, seed=seed, nodesplitter=wds.split_by_node) # , cache_dir="./tmp"
     dataset = dataset.map(partial(make_sample, **kwargs), handler=warn_and_continue)
 
     # For IterableDataset objects, the batching needs to happen in the dataset.

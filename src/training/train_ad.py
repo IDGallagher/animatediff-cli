@@ -36,8 +36,8 @@ from animatediff.models.clip import CLIPSkipTextModel
 from animatediff.models.unet import UNet3DConditionModel
 from animatediff.pipelines.animation import AnimationPipeline
 from animatediff.schedulers import get_scheduler
-from animatediff.utils import isolate_rng
 from animatediff.utils.device import get_memory_format, get_model_dtypes
+from animatediff.utils.isolate_rng import isolate_rng
 from animatediff.utils.util import (relative_path, save_frames, save_images,
                                     save_video)
 from training.dataset_ad import make_dataloader
@@ -399,9 +399,9 @@ def train_ad(
     vae = vae.to(device=device_id)
 
     # Get the training dataset
-    train_dataloader = make_dataloader(**train_data, batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size*gradient_accumulation_steps, seed=seed)
+    train_dataloader = make_dataloader(**train_data, shardshuffle=100, batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size*gradient_accumulation_steps, seed=seed)
 
-    val_dataloader = make_dataloader(**validation_data, batch_size=1, num_workers=0, epoch_size=validation_data.val_size)
+    val_dataloader = make_dataloader(**validation_data, shardshuffle=False, batch_size=1, num_workers=0, epoch_size=validation_data.val_size)
 
     if scale_lr:
         learning_rate = (learning_rate * gradient_accumulation_steps * train_batch_size * num_processes)
@@ -455,7 +455,8 @@ def train_ad(
             # Periodically validation
             actual_steps = global_step/gradient_accumulation_steps
 
-            if is_main_process and actual_steps % validation_steps == 0 and actual_steps > 0:
+            if is_main_process and actual_steps % validation_steps == 0:
+            # and actual_steps > 0:
                 with torch.no_grad(), isolate_rng():
 
                     torch.manual_seed(validation_data.get("seed"))
