@@ -59,7 +59,7 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
 
             batch_size = pixel_values.shape[0]
             video_length = pixel_values.shape[1]
-            pixel_values = normalize_and_rescale(pixel_values)
+            pixel_values = normalize_and_rescale(pixel_values, image_finetune=image_finetune)
 
             # if sanity_check:
             #     sanity_pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
@@ -93,7 +93,16 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
         del texts, prompt_ids
 
         zero_rank_print("Sample noise", LogType.debug)
-        noise, noisy_latents, timesteps, lookahead_denoising = add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length, generator=generator, device=unet.device)
+        if image_finetune:
+            noise = torch.randn(latents.size(), generator=generator).to(device=latents.device, dtype=latents.dtype)
+
+            timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (batch_size,), generator=generator).to(device=unet.device)
+            timesteps = timesteps.long()
+
+            noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+            lookahead_denoising = False
+        else:
+            noise, noisy_latents, timesteps, lookahead_denoising = add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length, generator=generator, device=unet.device)
         zero_rank_print(f"Lookahead {lookahead_denoising}")
         zero_rank_print(f"noise {noise.shape}", LogType.debug) #[2, 4, 16, 32, 32]
         zero_rank_print(f"latents {latents.shape}", LogType.debug)
@@ -116,6 +125,7 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
 
     with torch.autocast('cuda', enabled=mixed_precision_training):
         model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+        zero_rank_print(f"model_pred {model_pred.shape}", LogType.debug)
 
     if return_loss:
         if loss_scale is None:
@@ -168,13 +178,17 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
     else:
         return model_pred, target
 
-def normalize_and_rescale(image):
+def normalize_and_rescale(image, image_finetune=False):
     MEAN = [0.5, 0.5, 0.5]
     SD = [0.5, 0.5, 0.5]
     # MEAN = [0.485, 0.456, 0.406]
     # SD = [0.229, 0.224, 0.225]
-    mean = torch.tensor(MEAN).view(1, 1, 3, 1, 1).to(image.device)
-    std = torch.tensor(SD).view(1, 1, 3, 1, 1).to(image.device)
+    if image_finetune:
+        mean = torch.tensor(MEAN).view(1, 3, 1, 1).to(image.device)
+        std = torch.tensor(SD).view(1, 3, 1, 1).to(image.device)
+    else:
+        mean = torch.tensor(MEAN).view(1, 1, 3, 1, 1).to(image.device)
+        std = torch.tensor(SD).view(1, 1, 3, 1, 1).to(image.device)
     return (image.float()/255.0 - mean) / std
 
 def add_noise_same_timestep(noise_scheduler, latents, batch_size, video_length, generator, device):
@@ -529,7 +543,7 @@ def train_ad(
                                 height       = height,
                                 width        = width,
                                 num_inference_steps = validation_data.get("num_inference_steps", 25),
-                                guidance_scale      = validation_data.get("guidance_scale", 7.5),
+                                guidance_scale      = validation_data.get("guidance_scale", 8),
                                 context_frames = train_data.sample_n_frames,
                                 context_stride = 1,
                                 context_overlap = 4,

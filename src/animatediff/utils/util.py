@@ -102,7 +102,7 @@ def save_images(images: List[Image.Image], frames_dir: str) -> None:
     # Loop through images and save each
     for idx, frame in enumerate(tqdm(images, desc=f"Saving frames to {frames_dir.stem}")):
         # Use the save() method from PIL.Image to save the image
-        frame.save(frames_dir.joinpath(f"{idx:03d}.png"))
+        save_image(frame, frames_dir.joinpath(f"{idx:03d}.png"))
 
 def save_gif(video: Tensor, save_path: PathLike, fps: int = 8):
     save_path = Path(save_path)
