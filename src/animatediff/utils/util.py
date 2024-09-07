@@ -92,17 +92,17 @@ def save_frames(video: Tensor, frames_dir: PathLike):
     for idx, frame in enumerate(tqdm(frames, desc=f"Saving frames to {frames_dir.stem}")):
         save_image(frame, frames_dir.joinpath(f"{idx:03d}.png"))
 
-def save_images(images: List[Image.Image], frames_dir: str) -> None:
+def save_images(images: List[Image.Image], save_path: str) -> None:
     # Convert frames_dir to a Path object to utilize pathlib's methods
-    frames_dir = Path(frames_dir)
+    save_path = Path(save_path)
 
     # Create the directory if it doesn't exist
-    frames_dir.mkdir(parents=True, exist_ok=True)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Loop through images and save each
-    for idx, frame in enumerate(tqdm(images, desc=f"Saving frames to {frames_dir.stem}")):
+    for idx, frame in enumerate(tqdm(images, desc=f"Saving frames to {save_path}")):
         # Use the save() method from PIL.Image to save the image
-        save_image(frame, frames_dir.joinpath(f"{idx:03d}.png"))
+        save_image(frame, save_path)
 
 def save_gif(video: Tensor, save_path: PathLike, fps: int = 8):
     save_path = Path(save_path)
