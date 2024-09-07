@@ -61,16 +61,16 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
             video_length = pixel_values.shape[1]
             pixel_values = normalize_and_rescale(pixel_values)
 
-            if sanity_check:
-                sanity_pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
-                if not image_finetune:
-                    for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
-                        pixel_value = pixel_value[None, ...]
-                        save_video(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{idx}'}.mp4", fps=fps)
-                else:
-                    for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
-                        pixel_value = pixel_value / 2. + 0.5
-                        torchvision.utils.save_image(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{idx}'}.png")
+            # if sanity_check:
+            #     sanity_pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
+            #     if not image_finetune:
+            #         for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
+            #             pixel_value = pixel_value[None, ...]
+            #             save_video(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{idx}'}.mp4", fps=fps)
+            #     else:
+            #         for idx, (pixel_value, text) in enumerate(zip(sanity_pixel_values, texts)):
+            #             pixel_value = pixel_value / 2. + 0.5
+            #             torchvision.utils.save_image(pixel_value.cpu(), f"{run_dir}/sanity_check/{'-'.join(text.replace('/', '').split()[:10]) if not text == '' else f'{idx}'}.png")
 
             zero_rank_print("Convert videos to latent space", LogType.debug)
             if not image_finetune:
@@ -486,7 +486,7 @@ def train_ad(
                     loss_validation_local = sum(loss_validation_epoch) / len(loss_validation_epoch)
                     wandb.log({
                         "val_loss": loss_validation_local,
-                    }, step=global_step)
+                    }, step=actual_steps)
 
             if is_main_process and actual_steps > 0 and (actual_steps in validation_gen_steps_tuple or actual_steps % validation_gen_steps) == 0:
             # if False:
@@ -592,7 +592,7 @@ def train_ad(
                         "epoch": actual_steps // checkpointing_steps,
                         "sample_time": sample_time,
                         "data_wait_time": data_wait_time
-                    }, step=global_step)
+                    }, step=actual_steps)
                     zero_rank_print(f"train_loss {loss.item() * gradient_accumulation_steps} epoch {epoch} sample_time {sample_time} data_wait_time {data_wait_time}", LogType.debug)
 
                 zero_rank_print(f"Reset gradients at the beginning of the accumulation cycle", LogType.debug)
