@@ -34,7 +34,7 @@ def make_sample(sample, sample_size, target_fps, sample_n_frames, is_image=False
     try:
         video_path = sample["mp4"]
         caption = io.BytesIO(sample["txt"]).getvalue().decode('UTF-8')
-        zero_rank_print(f"Loading {caption}", LogType.debug)
+        # zero_rank_print(f"Loading {caption}", LogType.debug)
 
         if is_image:
             sample_n_frames = 1
@@ -49,7 +49,7 @@ def make_sample(sample, sample_size, target_fps, sample_n_frames, is_image=False
         original_fps = metadata.frame_rate
         video_length = metadata.num_frames
         duration = video_length / original_fps  # Duration in seconds
-        zero_rank_print(f"Video length {video_length} at {original_fps} fps", LogType.debug)
+        # zero_rank_print(f"Video length {video_length} at {original_fps} fps", LogType.debug)
 
         if video_length == 0:
             raise ValueError("Empty video file")
@@ -67,16 +67,16 @@ def make_sample(sample, sample_size, target_fps, sample_n_frames, is_image=False
         (frames,) = stream_reader.pop_chunks()
 
         # frames = frames[0]
-        zero_rank_print(f"frames {frames.shape} {frames.dtype} {frames.device}", LogType.debug)
+        # zero_rank_print(f"frames {frames.shape} {frames.dtype} {frames.device}", LogType.debug)
 
-        zero_rank_print(f"Video frames read and processed, start frame {start_frame} start time {start_time:.2f}s", LogType.debug)
+        # zero_rank_print(f"Video frames read and processed, start frame {start_frame} start time {start_time:.2f}s", LogType.debug)
 
         if is_image:
             pixel_values = frames[0]
         else:
             pixel_values = frames
 
-        zero_rank_print(f"PIXEL VALUES {pixel_values.shape}", LogType.debug)
+        # zero_rank_print(f"PIXEL VALUES {pixel_values.shape}", LogType.debug)
 
         # Check video size
         if not is_image and pixel_values.shape[0] != sample_n_frames:
