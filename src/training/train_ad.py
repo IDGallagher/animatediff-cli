@@ -560,7 +560,7 @@ def train_ad(
                                 guidance_scale      = validation_data.get("guidance_scale", 8.),
                             ).images[0]
                         pipeline_output = torchvision.transforms.functional.to_tensor(pipeline_output)
-                        save_images([pipeline_output], f"{run_dir}/samples/sample-{actual_steps}/")
+                        save_images([pipeline_output], f"{run_dir}/samples/sample-{actual_steps}/{idx}.png")
 
                 logging.info(f"Saved samples to {run_dir}")
                 del validation_pipeline, pipeline_output
