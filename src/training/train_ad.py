@@ -241,6 +241,7 @@ def train_ad(
     cfg_random_null_text_ratio: float = 0.1,
 
     unet_checkpoint_path: str = "",
+    resume_id: str = "",
     unet_additional_kwargs: Dict = {},
     ema_decay: float = 0.9999,
     noise_scheduler_kwargs = None,
@@ -296,7 +297,10 @@ def train_ad(
     *_, config = inspect.getargvalues(inspect.currentframe())
 
     if is_main_process and (not is_debug) and use_wandb:
-        run = wandb.init(project="animatediff", name=folder_name, config=config)
+        if resume_id != "":
+            run = wandb.init(project="animatediff", name=folder_name, config=config, id=resume_id, resume="must")
+        else:
+            run = wandb.init(project="animatediff", name=folder_name, config=config)
 
     # Handle the output folder creation
     if is_main_process:
@@ -404,7 +408,7 @@ def train_ad(
     vae = vae.to(device=device_id)
 
     # Get the training dataset
-    train_dataloader = make_dataloader(**train_data, shardshuffle=100, batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size*gradient_accumulation_steps, seed=seed)
+    train_dataloader = make_dataloader(**train_data, shardshuffle=100, resampled=(resume_id != ""), batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size*gradient_accumulation_steps, seed=seed)
 
     val_dataloader = make_dataloader(**validation_data, shardshuffle=False, batch_size=1, num_workers=0, epoch_size=validation_data.val_size)
 

@@ -72,7 +72,9 @@ validation_data:
 trainable_modules:
   - "motion_modules."
 
-unet_checkpoint_path: "/workspace/animatediff-cli/training_ad-2024-09-06T16-14-02_animatediff.pth"
+resume_id: "vig13n8w"
+unet_checkpoint_path: "/workspace/animatediff-cli/training_ad-2024-09-07T01-59-00_animatediff.pth"
+# unet_checkpoint_path: ""
 
 learning_rate:    1.e-5
 scale_lr:         False
