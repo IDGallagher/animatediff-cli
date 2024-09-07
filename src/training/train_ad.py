@@ -408,9 +408,9 @@ def train_ad(
     vae = vae.to(device=device_id)
 
     # Get the training dataset
-    train_dataloader = make_dataloader(**train_data, shardshuffle=100, resampled=(resume_id != ""), batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size*gradient_accumulation_steps, seed=seed)
+    train_dataloader = make_dataloader(**train_data, shardshuffle=100, resampled=(resume_id != ""), batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size*gradient_accumulation_steps, seed=seed, is_image=image_finetune)
 
-    val_dataloader = make_dataloader(**validation_data, shardshuffle=False, batch_size=1, num_workers=0, epoch_size=validation_data.val_size)
+    val_dataloader = make_dataloader(**validation_data, shardshuffle=False, batch_size=1, num_workers=0, epoch_size=validation_data.val_size, is_image=image_finetune)
 
     if scale_lr:
         learning_rate = (learning_rate * gradient_accumulation_steps * train_batch_size * num_processes)

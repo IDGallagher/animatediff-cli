@@ -23,7 +23,7 @@ python ./src/animatediff/__main__.py generate -c config/prompts/IPAImageTest.jso
 
 python ./src/animatediff/__main__.py generate -c 0000
 python ./src/animatediff/__main__.py train animatediff -c config/training/training_ad.yaml
-python ./src/animatediff/__main__.py train animatediff -c -w config/training/image_finetune.yaml
+python ./src/animatediff/__main__.py train animatediff -w -c config/training/image_finetune.yaml
 
 apt update -y
 apt upgrade -y

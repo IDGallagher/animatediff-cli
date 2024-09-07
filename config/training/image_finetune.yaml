@@ -1,7 +1,7 @@
 image_finetune: true
 
 output_dir: "outputs"
-sd_model_path: "models/StableDiffusion/stable-diffusion-v1-5"
+sd_model_path: "data/models/sd/stable-diffusion-v1-5"
 
 noise_scheduler_kwargs:
   num_train_timesteps: 1000
@@ -10,11 +10,6 @@ noise_scheduler_kwargs:
   beta_schedule:       "scaled_linear"
   steps_offset:        1
   clip_sample:         false
-
-train_data:
-  csv_path:     "/mnt/petrelfs/guoyuwei/projects/datasets/webvid/results_2M_val.csv"
-  video_folder: "/mnt/petrelfs/guoyuwei/projects/datasets/webvid/2M_val"
-  sample_size:  256
 
 train_data:
   shards:            "pipe:aws s3 cp s3://webvid-10m/train/{00000..10727}.tar -"
@@ -40,6 +35,8 @@ validation_data:
     - "Pacific coast, carmel by the sea ocean and waves."
   num_inference_steps: 25
   guidance_scale: 8.
+  target_fps:      6
+  sample_n_frames: 16
   seed: 123456
 
 trainable_modules:
