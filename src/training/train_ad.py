@@ -278,6 +278,9 @@ def train_ad(
     num_processes   = dist.get_world_size()
     is_main_process = global_rank == 0
 
+    global_step = 0
+    first_epoch = 0
+
     seed = global_seed + global_rank
 
     sample_start_time = time.time()
@@ -334,7 +337,9 @@ def train_ad(
     if unet_checkpoint_path != "":
         zero_rank_print(f"Loading from checkpoint: {unet_checkpoint_path}")
         unet_checkpoint_path = torch.load(unet_checkpoint_path, map_location="cpu")
-        if "global_step" in unet_checkpoint_path: zero_rank_print(f"global_step: {unet_checkpoint_path['global_step']}")
+        if "global_step" in unet_checkpoint_path:
+            zero_rank_print(f"global_step: {unet_checkpoint_path['global_step']}")
+            global_step = unet_checkpoint_path['global_step']
         raw_state_dict = unet_checkpoint_path["state_dict"] if "state_dict" in unet_checkpoint_path else unet_checkpoint_path
 
         # Modify the keys by removing 'module.' prefix if it exists
@@ -430,8 +435,6 @@ def train_ad(
         logging.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
         logging.info(f"  Gradient Accumulation steps = {gradient_accumulation_steps}")
         logging.info(f"  Total optimization steps = {epoch_size * num_epochs * gradient_accumulation_steps / train_batch_size}")
-    global_step = 0
-    first_epoch = 0
 
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, num_epochs*epoch_size*total_batch_size), disable=not is_main_process)

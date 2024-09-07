@@ -43,7 +43,7 @@ train_data:
   target_fps:      6
   sample_n_frames: 16
 
-  use_lion_optim: True
+  use_lion_optim: False
   use_clipping: False
   adapter_lora_path: ""
   # adapter_lora_path: "data/models/motion-module/v3_sd15_adapter.ckpt"
@@ -72,13 +72,13 @@ validation_data:
 trainable_modules:
   - "motion_modules."
 
-unet_checkpoint_path: ""
+unet_checkpoint_path: "/workspace/animatediff-cli/training_ad-2024-09-06T16-14-02_animatediff.pth"
 
 learning_rate:    1.e-5
 scale_lr:         False
 lr_scheduler:     "cosine"
 train_batch_size: 1
-gradient_accumulation_steps: 2
+gradient_accumulation_steps: 1
 num_workers: 6
 
 # epoch_size:           10000000
