@@ -1,7 +1,7 @@
 image_finetune: true
 
 output_dir: "outputs"
-pretrained_model_path: "models/StableDiffusion/stable-diffusion-v1-5"
+sd_model_path: "models/StableDiffusion/stable-diffusion-v1-5"
 
 noise_scheduler_kwargs:
   num_train_timesteps: 1000
@@ -16,7 +16,23 @@ train_data:
   video_folder: "/mnt/petrelfs/guoyuwei/projects/datasets/webvid/2M_val"
   sample_size:  256
 
+train_data:
+  shards:            "pipe:aws s3 cp s3://webvid-10m/train/{00000..10727}.tar -"
+
+  sample_size:     512
+  target_fps:      6
+  sample_n_frames: 16
+
+  use_lion_optim: False
+  use_clipping: False
+  adapter_lora_path: ""
+  # adapter_lora_path: "data/models/motion-module/v3_sd15_adapter.ckpt"
+  adapter_lora_scale: 1
+
 validation_data:
+  shards:       "pipe:aws s3 cp s3://webvid-10m/val/{00000..00004}.tar -"
+  val_size:     20
+  sample_size:     512
   prompts:
     - "Snow rocky mountains peaks canyon. Snow blanketed rocky mountains surround and shadow deep canyons."
     - "A drone view of celebration with Christma tree and fireworks, starry sky - background."
@@ -24,26 +40,31 @@ validation_data:
     - "Pacific coast, carmel by the sea ocean and waves."
   num_inference_steps: 25
   guidance_scale: 8.
+  seed: 123456
 
 trainable_modules:
   - "."
 
+resume_id:            ""
 unet_checkpoint_path: ""
 
 learning_rate:    1.e-5
 lr_scheduler:     "cosine"
 train_batch_size: 50
+num_workers:      6
 
-max_train_epoch:      -1
-max_train_steps:      100
+epoch_size:           1001
+num_epochs:           1
 checkpointing_epochs: -1
-checkpointing_steps:  60
+checkpointing_steps:  100
 
-validation_steps:       5000
-validation_steps_tuple: [2, 50]
+validation_steps:           20
+validation_gen_steps:       500
+validation_gen_steps_tuple: []
 
 global_seed: 42
-mixed_precision_training: true
-enable_xformers_memory_efficient_attention: True
+mixed_precision_training: True
+enable_xformers_memory_efficient_attention: False
+gradient_checkpointing: True
 
 is_debug: False
