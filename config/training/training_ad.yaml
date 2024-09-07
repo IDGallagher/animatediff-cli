@@ -87,8 +87,8 @@ num_epochs:           1
 checkpointing_epochs: -1
 checkpointing_steps:  1000
 
-validation_steps:           2
-validation_gen_steps:       1000
+validation_steps:           20
+validation_gen_steps:       500
 validation_gen_steps_tuple: []
 
 global_seed: 42
