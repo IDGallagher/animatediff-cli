@@ -72,7 +72,7 @@ def make_sample(sample, sample_size, target_fps, sample_n_frames, is_image=False
         zero_rank_print(f"Video frames read and processed, start frame {start_frame} start time {start_time:.2f}s", LogType.debug)
 
         if is_image:
-            pixel_values = frames[0]
+            pixel_values = torch.squeeze(frames[0], 0)
         else:
             pixel_values = frames
 
