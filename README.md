@@ -9,10 +9,11 @@ python .\src\animatediff\__main__.py generate -c config\prompts\IPAImageTestCow.
 
 python ./src/animatediff/__main__.py generate -c config/prompts/IPAImageTestCow.json
 python ./src/animatediff/__main__.py generate -c config/prompts/ValidationCow.json
+python ./src/animatediff/__main__.py generate -c config/prompts/IPAVideoTest.json
 python ./src/animatediff/__main__.py train motionpredictor -w -c config/training/training_mp.yaml
 python ./src/animatediff/__main__.py train animatediff -w -c config/training/training_ad.yaml
 
-python ./src/animatediff/__main__.py filter --input /workspace/animatediff-cli/training_ad-2024-08-25T07-16-21_animatediff.pth --output data/models/motion-module/0011-16c-6fps-512-b1-full-presc-a100-dom.pth
+python ./src/animatediff/__main__.py filter --input /workspace/animatediff-cli/training_ad-2024-09-07T16-50-25_animatediff.pth --output data/models/motion-module/0013-24c-24fps-512-b1-img-rope.pth
 
 python ./src/animatediff/__main__.py generate -c config/prompts/ValidationCowRealVision.json -W 256 -H 256 -L 24
 python ./src/animatediff/__main__.py generate -c config/prompts/IPAVideoTest.json -W 256 -H 256 -L 64
@@ -22,7 +23,7 @@ python ./src/animatediff/__main__.py generate -c config/prompts/ValidationCowRea
 python ./src/animatediff/__main__.py generate -c config/prompts/IPAImageTest.json -W 512 -H 512 -L 256
 
 python ./src/animatediff/__main__.py generate -c 0000
-python ./src/animatediff/__main__.py train animatediff -c config/training/training_ad.yaml
+python ./src/animatediff/__main__.py train animatediff -w -c config/training/training_ad.yaml
 python ./src/animatediff/__main__.py train animatediff -w -c config/training/image_finetune.yaml
 
 apt update -y

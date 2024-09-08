@@ -21,7 +21,8 @@ unet_additional_kwargs:
     temporal_position_encoding_max_len : 32
     temporal_attention_dim_div         : 1
     zero_initialize                    : False
-    rotary_position_encoding           : false
+    rotary_position_encoding           : False
+    rotary_max_freq                    : 48
 
 noise_scheduler_kwargs:
   num_train_timesteps: 1000
@@ -39,22 +40,23 @@ train_data:
 
   # csv_path:        "./data/test.csv"
   # video_folder:    "./data/videos"
-  sample_size:     512
-  target_fps:      6
-  sample_n_frames: 16
+  sample_size:     256
+  target_fps:      12
+  sample_n_frames: 32
 
   use_lion_optim: False
   use_clipping: False
   adapter_lora_path: ""
   # adapter_lora_path: "data/models/motion-module/v3_sd15_adapter.ckpt"
-  adapter_lora_scale: 1
+  # adapter_lora_scale: 1
+
 
 validation_data:
   shards:       "pipe:aws s3 cp s3://webvid-10m/val/{00000..00004}.tar -"
   val_size:     20
-  sample_size:     512
-  target_fps:      6
-  sample_n_frames: 16
+  sample_size:     256
+  target_fps:      12
+  sample_n_frames: 32
 
   prompts:
     - "Handheld shot of frustrated businesswoman in formalwear and face mask pushed to her chin sitting at desk in office during covid-19 outbreak. she is trying to call someone and reading documents"
@@ -63,17 +65,18 @@ validation_data:
     - "close up photo of a rabbit, forest, haze, halation, bloom, dramatic atmosphere, centred, rule of thirds, 200mm 1.4f macro shot"
   num_inference_steps: 25
   guidance_scale: 8
-  context_frames: 16
+  context_frames: 32
   context_stride: 1
   context_overlap: 4
-  fps: 6
+  fps: 12
   seed: 123456
 
 trainable_modules:
   - "motion_modules."
 
-resume_id: "vig13n8w"
-unet_checkpoint_path: "/workspace/animatediff-cli/training_ad-2024-09-07T01-59-00_animatediff.pth"
+# resume_id: "vig13n8w"
+# unet_checkpoint_path: "/workspace/animatediff-cli/512-shutterstock-sd1-5.pth"
+unet_checkpoint_path: "/workspace/animatediff-cli/256-shutterstock-sd1-5.pth"
 # unet_checkpoint_path: ""
 
 learning_rate:    1.e-5
@@ -87,10 +90,10 @@ num_workers: 6
 epoch_size:           10001
 num_epochs:           1
 checkpointing_epochs: -1
-checkpointing_steps:  1000
+checkpointing_steps:  200
 
 validation_steps:           20
-validation_gen_steps:       500
+validation_gen_steps:       200
 validation_gen_steps_tuple: []
 
 global_seed: 42

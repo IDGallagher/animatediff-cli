@@ -357,7 +357,8 @@ def train_ad(
         unet_checkpoint_path = torch.load(unet_checkpoint_path, map_location="cpu")
         if "global_step" in unet_checkpoint_path:
             zero_rank_print(f"global_step: {unet_checkpoint_path['global_step']}")
-            global_step = unet_checkpoint_path['global_step']
+            if resume_id != "":
+                global_step = unet_checkpoint_path['global_step']
         raw_state_dict = unet_checkpoint_path["state_dict"] if "state_dict" in unet_checkpoint_path else unet_checkpoint_path
 
         # Modify the keys by removing 'module.' prefix if it exists
@@ -509,7 +510,8 @@ def train_ad(
                         "val_loss": loss_validation_local,
                     }, step=int(actual_steps))
 
-            if is_main_process and actual_steps > 0 and (actual_steps in validation_gen_steps_tuple or actual_steps % validation_gen_steps) == 0:
+            if is_main_process and (actual_steps in validation_gen_steps_tuple or actual_steps % validation_gen_steps) == 0:
+                # and actual_steps > 0
             # if False:
                 zero_rank_print("Validation Gen")
 

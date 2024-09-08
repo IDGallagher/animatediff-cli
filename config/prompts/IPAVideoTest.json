@@ -2,7 +2,7 @@
   "name": "IPAVideoTest",
   "base": "",
   "path": "data/models/realisticVisionV60B1_v51VAE.safetensors",
-  "motion_module": "models/motion-module/rope_256_dom_pix_24fps_b1_mm.pth",
+  "motion_module": "models/motion-module/0013-24c-24fps-512-b1-img-rope.pth",
   "compile": false,
   "seed": [
     123456789
@@ -11,7 +11,7 @@
   "video_fps":  24,
   "scheduler": "ddim",
   "steps": 25,
-  "guidance_scale": 7.5,
+  "guidance_scale": 8,
   "clip_skip": 1,
   "prompts": [
     "Two cows eating hay"
