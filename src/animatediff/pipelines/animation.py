@@ -521,7 +521,8 @@ class AnimationPipeline(DiffusionPipeline, TextualInversionLoaderMixin):
         width = width or self.unet.config.sample_size * self.vae_scale_factor
 
         # 24 frames is max reliable number for one-shot mode, so we use sequential mode for longer videos
-        sequential_mode = video_length > 24
+        # sequential_mode = video_length > 24
+        sequential_mode = False
 
         # 1. Check inputs. Raise error if not correct
         self.check_inputs(

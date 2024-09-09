@@ -13,7 +13,7 @@ python ./src/animatediff/__main__.py generate -c config/prompts/IPAVideoTest.jso
 python ./src/animatediff/__main__.py train motionpredictor -w -c config/training/training_mp.yaml
 python ./src/animatediff/__main__.py train animatediff -w -c config/training/training_ad.yaml
 
-python ./src/animatediff/__main__.py filter --input /workspace/animatediff-cli/training_ad-2024-09-07T16-50-25_animatediff.pth --output data/models/motion-module/0013-24c-24fps-512-b1-img-rope.pth
+python ./src/animatediff/__main__.py filter --input /workspace/animatediff-cli/training_ad-2024-09-08T04-31-06_animatediff.pth --output data/models/motion-module/0014-32c-12fps-512-b4-img.pth
 
 python ./src/animatediff/__main__.py generate -c config/prompts/ValidationCowRealVision.json -W 256 -H 256 -L 24
 python ./src/animatediff/__main__.py generate -c config/prompts/IPAVideoTest.json -W 256 -H 256 -L 64

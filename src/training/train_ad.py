@@ -20,6 +20,7 @@ import torchvision
 from diffusers import AutoencoderKL, DDPMScheduler, StableDiffusionPipeline
 from diffusers.models import UNet2DConditionModel
 from diffusers.optimization import get_scheduler as get_lr_scheduler
+from diffusers.training_utils import cast_training_params
 from diffusers.utils.torch_utils import randn_tensor
 from einops import rearrange
 from lion_pytorch import Lion
@@ -148,7 +149,10 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
         else:
             loss_mse = F.mse_loss(model_pred.float(), target.float(), reduction="none")
 
-        loss_scale = loss_scale.view(-1, 1, 1, 1).expand_as(loss_mse)
+        if image_finetune:
+            loss_scale = loss_scale.view(-1, 1, 1, 1).expand_as(loss_mse)
+        else:
+            loss_scale = loss_scale.view(-1, 1, 1, 1, 1).expand_as(loss_mse)
 
         # if args.loss_type == "mse_huber":
         #     early_timestep_bias = (timesteps / noise_scheduler.config.num_train_timesteps)
@@ -375,18 +379,27 @@ def train_ad(
         domain_lora_state_dict.pop("animatediff_config", "")
         unet = apply_lora(unet, domain_lora_state_dict, alpha=train_data.adapter_lora_scale)
 
+    weight_dtype = torch.float32
+    if mixed_precision_training:
+        weight_dtype = torch.float16
+
     # Freeze vae and text_encoder
-    vae.requires_grad_(False)
-    text_encoder.requires_grad_(False)
+    vae.requires_grad_(False).to(weight_dtype)
+    text_encoder.requires_grad_(False).to(weight_dtype)
 
     # Set unet trainable parameters
-    unet.requires_grad_(False)
+    unet.requires_grad_(False).to(weight_dtype)
     for name, param in unet.named_parameters():
         for trainable_module_name in trainable_modules:
             if trainable_module_name in name:
                 # zero_rank_print(f"Training module: {name}", LogType.debug)
                 param.requires_grad = True
                 break
+
+    if mixed_precision_training:
+        cast_training_params(unet, dtype=torch.float32)
+
+    torch.backends.cuda.matmul.allow_tf32 = True
 
     trainable_params = list(filter(lambda p: p.requires_grad, unet.parameters()))
     zero_rank_print(f"trainable params number: {len(trainable_params)}")

@@ -580,6 +580,14 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
 
         model: nn.Module = cls.from_config(unet_config, **unet_additional_kwargs)
 
+        # Before loading the state dict
+        pe_keys = [k for k in state_dict.keys() if k.endswith('.pe')]
+        for key in pe_keys:
+            del state_dict[key]
+            logger.warning(f"Removed {key} from state_dict. Using initialized values instead.")
+
+        logger.info(f"Removed {len(pe_keys)} positional encoding keys from state_dict.")
+
         # load the weights into the model
         m, u = model.load_state_dict(state_dict, strict=False)
         logger.debug(f"### missing keys: {len(m)}; \n### unexpected keys: {len(u)};")
