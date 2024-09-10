@@ -48,8 +48,45 @@ from .utils import LogType, apply_lora, zero_rank_partial
 logger = logging.getLogger(__name__)
 zero_rank_print: Callable[[str, LogType], None] = partial(zero_rank_partial, logger)
 
+def compute_snr(timesteps, noise_scheduler):
+    """
+    Computes SNR as per https://github.com/TiankaiHang/Min-SNR-Diffusion-Training/blob/521b624bd70c67cee4bdf49225915f5945a872e3/guided_diffusion/gaussian_diffusion.py#L847-L849
+    """
+    minimal_value = 1e-9
+    alphas_cumprod = noise_scheduler.alphas_cumprod
+    # Use .any() to check if any elements in the tensor are zero
+    if (alphas_cumprod[:-1] == 0).any():
+        logging.warning(
+            f"Alphas cumprod has zero elements! Resetting to {minimal_value}.."
+        )
+        alphas_cumprod[alphas_cumprod[:-1] == 0] = minimal_value
+    sqrt_alphas_cumprod = alphas_cumprod**0.5
+    sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
+    # Expand the tensors.
+    # Adapted from https://github.com/TiankaiHang/Min-SNR-Diffusion-Training/blob/521b624bd70c67cee4bdf49225915f5945a872e3/guided_diffusion/gaussian_diffusion.py#L1026
+    sqrt_alphas_cumprod = sqrt_alphas_cumprod.to(device=timesteps.device)[
+        timesteps
+    ].float()
+    while len(sqrt_alphas_cumprod.shape) < len(timesteps.shape):
+        sqrt_alphas_cumprod = sqrt_alphas_cumprod[..., None]
+    alpha = sqrt_alphas_cumprod.expand(timesteps.shape)
+
+    sqrt_one_minus_alphas_cumprod = sqrt_one_minus_alphas_cumprod.to(
+        device=timesteps.device
+    )[timesteps].float()
+    while len(sqrt_one_minus_alphas_cumprod.shape) < len(timesteps.shape):
+        sqrt_one_minus_alphas_cumprod = sqrt_one_minus_alphas_cumprod[..., None]
+    sigma = sqrt_one_minus_alphas_cumprod.expand(timesteps.shape)
+
+    # Compute SNR, first without epsilon
+    snr = (alpha / sigma) ** 2
+    # Check if the first element in SNR tensor is zero
+    if torch.any(snr == 0):
+        snr[snr == 0] = minimal_value
+    return snr
+
 # actual prediction function - shared between train and validate
-def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, generator, run_dir, cfg_random_null_text_ratio=0.0, zero_frequency_noise_ratio=0.0, return_loss=False, loss_scale=None, embedding_perturbation=0.0, mixed_precision_training: bool = True, image_finetune: bool = False, fps:int = 6, sanity_check: bool = False):
+def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, generator, run_dir, cfg_random_null_text_ratio=0.0, zero_frequency_noise_ratio=0.0, return_loss=False, loss_scale=None, embedding_perturbation=0.0, mixed_precision_training: bool = True, image_finetune: bool = False, fps:int = 6, sanity_check: bool = False, min_snr_gamma = None):
     with torch.no_grad():
         with torch.autocast('cuda', enabled=mixed_precision_training):
             pixel_values = batch[0].to(unet.device)
@@ -132,17 +169,18 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
         if loss_scale is None:
             loss_scale = torch.ones(model_pred.shape[0], dtype=torch.float)
 
-        # if args.min_snr_gamma is not None:
-        #     snr = compute_snr(timesteps, noise_scheduler)
+        if min_snr_gamma is not None:
+            snr = compute_snr(timesteps, noise_scheduler)
 
-        #     mse_loss_weights = (
-        #             torch.stack(
-        #                 [snr, args.min_snr_gamma * torch.ones_like(timesteps)], dim=1
-        #             ).min(dim=1)[0]
-        #             / snr
-        #     )
-        #     mse_loss_weights[snr == 0] = 1.0
-        #     loss_scale = loss_scale * mse_loss_weights.to(loss_scale.device)
+            mse_loss_weights = (
+                    torch.stack(
+                        [snr, min_snr_gamma * torch.ones_like(timesteps)], dim=1
+                    ).min(dim=1)[0]
+                    / snr
+            )
+            mse_loss_weights[snr == 0] = 1.0
+            loss_scale = loss_scale * mse_loss_weights.to(loss_scale.device)
+
         if lookahead_denoising:
             mid_point = model_pred.shape[2] // 2
             loss_mse = F.mse_loss(model_pred[:, :, mid_point:, :, :].float(), target[:, :, mid_point:, :, :].float(), reduction="none")
@@ -285,6 +323,7 @@ def train_ad(
     gradient_checkpointing: bool = False,
     checkpointing_epochs: int = 5,
     checkpointing_steps: int = -1,
+    min_snr_gamma = None,
 
     mixed_precision_training: bool = True,
     enable_xformers_memory_efficient_attention: bool = True,
@@ -506,7 +545,7 @@ def train_ad(
                     steps_pbar.set_description(f"Validation")
 
                     for val_step, val_batch in enumerate(val_dataloader):
-                        model_pred, target = get_model_prediction_and_target(val_batch, unet, vae, noise_scheduler, tokenizer, text_encoder, val_generator, run_dir, return_loss=False, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps, sanity_check=val_step==0)
+                        model_pred, target = get_model_prediction_and_target(val_batch, unet, vae, noise_scheduler, tokenizer, text_encoder, val_generator, run_dir, return_loss=False, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps, sanity_check=val_step==0, min_snr_gamma=min_snr_gamma)
 
                         loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                         del target, model_pred
@@ -585,7 +624,7 @@ def train_ad(
 
             sample_start_time = time.time()
 
-            model_pred, target, loss = get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, train_generator, run_dir, cfg_random_null_text_ratio=cfg_random_null_text_ratio, return_loss=True, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps, sanity_check=global_step==0)
+            model_pred, target, loss = get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, train_generator, run_dir, cfg_random_null_text_ratio=cfg_random_null_text_ratio, return_loss=True, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps, sanity_check=global_step==0, min_snr_gamma=min_snr_gamma)
 
             del target, model_pred
             torch.cuda.empty_cache()
