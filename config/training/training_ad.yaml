@@ -45,7 +45,8 @@ train_data:
   sample_n_frames: 32
 
   use_lion_optim: False
-  use_clipping: False
+  use_ademamix:   True
+  use_clipping: True
   adapter_lora_path: ""
   # adapter_lora_path: "data/models/motion-module/v3_sd15_adapter.ckpt"
   # adapter_lora_scale: 1
@@ -74,22 +75,26 @@ validation_data:
 trainable_modules:
   - "motion_modules."
 
-# resume_id: "vig13n8w"
-# unet_checkpoint_path: "/workspace/animatediff-cli/512-shutterstock-sd1-5.pth"
+# resume_id: "zrypp7qf"
 unet_checkpoint_path: "/workspace/animatediff-cli/256-shutterstock-sd1-5.pth"
+# unet_checkpoint_path: "/workspace/animatediff-cli/training_ad-2024-09-10T01-20-08_animatediff.pth"
 # unet_checkpoint_path: ""
 
 min_snr_gamma:    5
 loss_type:        "huber"
 learning_rate:    1.e-5
+lr_warmup_steps:  100
 scale_lr:         False
 lr_scheduler:     "cosine"
-train_batch_size: 1
-gradient_accumulation_steps: 1
-num_workers: 6
+# lr_scheduler:     "linear"
+# lr_scheduler:     "cosine"
+train_batch_size: 2
+gradient_accumulation_steps: 2
+num_workers: 4
 
 # epoch_size:           10000000
-epoch_size:           10001
+# epoch_size:           10001
+epoch_size:           100001
 num_epochs:           1
 checkpointing_epochs: -1
 checkpointing_steps:  200
@@ -99,7 +104,7 @@ validation_gen_steps:       200
 validation_gen_steps_tuple: []
 
 global_seed: 42
-mixed_precision_training: True
+mixed_precision_training: False
 enable_xformers_memory_efficient_attention: False
 gradient_checkpointing: True
 

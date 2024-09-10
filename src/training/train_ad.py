@@ -41,6 +41,7 @@ from animatediff.utils.device import get_memory_format, get_model_dtypes
 from animatediff.utils.isolate_rng import isolate_rng
 from animatediff.utils.util import (relative_path, save_frames, save_images,
                                     save_video)
+from training.ademamix import AdEMAMix
 from training.dataset_ad import make_dataloader
 
 from .utils import LogType, apply_lora, zero_rank_partial
@@ -305,6 +306,7 @@ def train_ad(
     validation_steps: int = 100,
     validation_gen_steps: int = 100,
     validation_gen_steps_tuple: Tuple = (-1,),
+    validate_first: bool = True,
 
     learning_rate: float = 3e-5,
     scale_lr: bool = False,
@@ -316,6 +318,7 @@ def train_ad(
     train_batch_size: int = 1,
     adam_beta1: float = 0.9,
     adam_beta2: float = 0.999,
+    adam_beta3: float = 0.9999,
     adam_weight_decay: float = 1e-2,
     adam_epsilon: float = 1e-08,
     max_grad_norm: float = 1.0,
@@ -455,20 +458,28 @@ def train_ad(
         logger.info("Enabling gradient checkpointing")
         unet.enable_gradient_checkpointing()
 
-    if not train_data.use_lion_optim:
+    if train_data.use_lion_optim:
+        optimizer = Lion(
+            trainable_params,
+            lr=learning_rate / 10,
+            betas=(adam_beta1, adam_beta2),
+            weight_decay=adam_weight_decay * 10,
+        )
+    elif train_data.use_ademamix:
+        optimizer = AdEMAMix(
+            trainable_params,
+            lr=learning_rate,
+            betas=(adam_beta1, adam_beta2, adam_beta3),
+            weight_decay=adam_weight_decay,
+            eps=adam_epsilon,
+        )
+    else:
         optimizer = torch.optim.AdamW(
             trainable_params,
             lr=learning_rate,
             betas=(adam_beta1, adam_beta2),
             weight_decay=adam_weight_decay,
             eps=adam_epsilon,
-        )
-    else:
-        optimizer = Lion(
-            trainable_params,
-            lr=learning_rate / 10,
-            betas=(adam_beta1, adam_beta2),
-            weight_decay=adam_weight_decay * 10,
         )
 
     # Move models to GPU
@@ -561,9 +572,11 @@ def train_ad(
                     loss_validation_local = sum(loss_validation_epoch) / len(loss_validation_epoch)
                     wandb.log({
                         "val_loss": loss_validation_local,
-                    }, step=int(actual_steps))
+                        "custom_step": int(actual_steps)
+                    })
 
-            if is_main_process and (actual_steps in validation_gen_steps_tuple or actual_steps % validation_gen_steps) == 0:
+            if is_main_process and (actual_steps in validation_gen_steps_tuple or actual_steps % validation_gen_steps == 0 or validate_first):
+                validate_first = False
                 # and actual_steps > 0
             # if False:
                 zero_rank_print("Validation Gen")
@@ -667,8 +680,9 @@ def train_ad(
                         "lr": lr_scheduler.get_lr()[0],
                         "epoch": actual_steps // checkpointing_steps,
                         "sample_time": sample_time,
-                        "data_wait_time": data_wait_time
-                    }, step=int(actual_steps))
+                        "data_wait_time": data_wait_time,
+                        "custom_step": int(actual_steps),
+                    })
                     zero_rank_print(f"train_loss {loss.item() * gradient_accumulation_steps} epoch {epoch} sample_time {sample_time} data_wait_time {data_wait_time}", LogType.debug)
 
                 zero_rank_print(f"Reset gradients at the beginning of the accumulation cycle", LogType.debug)
