@@ -84,7 +84,7 @@ min_snr_gamma:    5
 loss_type:        "huber"
 learning_rate:    1.e-5
 lr_warmup_steps:  100
-scale_lr:         False
+scale_lr:         -0.5
 lr_scheduler:     "cosine"
 # lr_scheduler:     "linear"
 # lr_scheduler:     "cosine"

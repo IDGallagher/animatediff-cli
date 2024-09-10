@@ -309,7 +309,7 @@ def train_ad(
     validate_first: bool = True,
 
     learning_rate: float = 3e-5,
-    scale_lr: bool = False,
+    scale_lr = None,
     lr_warmup_steps: int = 0,
     lr_scheduler: str = "constant",
 
@@ -439,8 +439,8 @@ def train_ad(
                 param.requires_grad = True
                 break
 
-    # if mixed_precision_training:
-        # cast_training_params(unet, dtype=torch.float32)
+    if mixed_precision_training:
+        cast_training_params(unet, dtype=torch.float32)
 
     torch.backends.cuda.matmul.allow_tf32 = True
 
@@ -457,6 +457,9 @@ def train_ad(
     if gradient_checkpointing:
         logger.info("Enabling gradient checkpointing")
         unet.enable_gradient_checkpointing()
+
+    if scale_lr is not None:
+        learning_rate = learning_rate * math.pow(gradient_accumulation_steps * train_batch_size * num_processes, scale_lr)
 
     if train_data.use_lion_optim:
         optimizer = Lion(
@@ -490,9 +493,6 @@ def train_ad(
     train_dataloader = make_dataloader(**train_data, shardshuffle=100, resampled=(resume_id != ""), batch_size=train_batch_size, num_workers=num_workers, epoch_size=epoch_size*train_batch_size*gradient_accumulation_steps, seed=seed, is_image=image_finetune)
 
     val_dataloader = make_dataloader(**validation_data, shardshuffle=False, batch_size=1, num_workers=0, epoch_size=validation_data.val_size, is_image=image_finetune)
-
-    if scale_lr:
-        learning_rate = (learning_rate * gradient_accumulation_steps * train_batch_size * num_processes)
 
     # Scheduler
     lr_scheduler = get_lr_scheduler(
