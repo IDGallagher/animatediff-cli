@@ -86,7 +86,7 @@ def compute_snr(timesteps, noise_scheduler):
     return snr
 
 # actual prediction function - shared between train and validate
-def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, generator, run_dir, cfg_random_null_text_ratio=0.0, zero_frequency_noise_ratio=0.0, return_loss=False, loss_scale=None, embedding_perturbation=0.0, mixed_precision_training: bool = True, image_finetune: bool = False, fps:int = 6, sanity_check: bool = False, min_snr_gamma = None):
+def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, generator, run_dir, cfg_random_null_text_ratio=0.0, zero_frequency_noise_ratio=0.0, return_loss=False, loss_scale=None, embedding_perturbation=0.0, mixed_precision_training: bool = True, image_finetune: bool = False, fps:int = 6, sanity_check: bool = False, min_snr_gamma = None, loss_type="mse"):
     with torch.no_grad():
         with torch.autocast('cuda', enabled=mixed_precision_training):
             pixel_values = batch[0].to(unet.device)
@@ -192,29 +192,29 @@ def get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer
         else:
             loss_scale = loss_scale.view(-1, 1, 1, 1, 1).expand_as(loss_mse)
 
-        # if args.loss_type == "mse_huber":
-        #     early_timestep_bias = (timesteps / noise_scheduler.config.num_train_timesteps)
-        #     early_timestep_bias = torch.tensor(early_timestep_bias, dtype=torch.float).to(unet.device)
-        #     early_timestep_bias = early_timestep_bias.view(-1, 1, 1, 1).expand_as(loss_mse)
-        #     loss_huber = F.huber_loss(model_pred.float(), target.float(), reduction="none", delta=1.0)
-        #     loss_mse = loss_mse * loss_scale.to(unet.device) * early_timestep_bias
-        #     loss_huber = loss_huber * loss_scale.to(unet.device) * (1.0 - early_timestep_bias)
-        #     loss = loss_mse.mean() + loss_huber.mean()
-        # elif args.loss_type == "huber_mse":
-        #     early_timestep_bias = (timesteps / noise_scheduler.config.num_train_timesteps)
-        #     early_timestep_bias = torch.tensor(early_timestep_bias, dtype=torch.float).to(unet.device)
-        #     early_timestep_bias = early_timestep_bias.view(-1, 1, 1, 1).expand_as(loss_mse)
-        #     loss_huber = F.huber_loss(model_pred.float(), target.float(), reduction="none", delta=1.0)
-        #     loss_mse = loss_mse * loss_scale.to(unet.device) * (1.0 - early_timestep_bias)
-        #     loss_huber = loss_huber * loss_scale.to(unet.device) * early_timestep_bias
-        #     loss = loss_huber.mean() + loss_mse.mean()
-        # elif args.loss_type == "huber":
-        #     loss_huber = F.huber_loss(model_pred.float(), target.float(), reduction="none", delta=1.0)
-        #     loss_huber = loss_huber * loss_scale.to(unet.device)
-        #     loss = loss_huber.mean()
-        # else:
-        loss_mse = loss_mse * loss_scale.to(unet.device)
-        loss = loss_mse.mean()
+        if loss_type == "mse_huber":
+            early_timestep_bias = (timesteps / noise_scheduler.config.num_train_timesteps)
+            early_timestep_bias = torch.tensor(early_timestep_bias, dtype=torch.float).to(unet.device)
+            early_timestep_bias = early_timestep_bias.view(-1, 1, 1, 1).expand_as(loss_mse)
+            loss_huber = F.huber_loss(model_pred.float(), target.float(), reduction="none", delta=1.0)
+            loss_mse = loss_mse * loss_scale.to(unet.device) * early_timestep_bias
+            loss_huber = loss_huber * loss_scale.to(unet.device) * (1.0 - early_timestep_bias)
+            loss = loss_mse.mean() + loss_huber.mean()
+        elif loss_type == "huber_mse":
+            early_timestep_bias = (timesteps / noise_scheduler.config.num_train_timesteps)
+            early_timestep_bias = torch.tensor(early_timestep_bias, dtype=torch.float).to(unet.device)
+            early_timestep_bias = early_timestep_bias.view(-1, 1, 1, 1).expand_as(loss_mse)
+            loss_huber = F.huber_loss(model_pred.float(), target.float(), reduction="none", delta=1.0)
+            loss_mse = loss_mse * loss_scale.to(unet.device) * (1.0 - early_timestep_bias)
+            loss_huber = loss_huber * loss_scale.to(unet.device) * early_timestep_bias
+            loss = loss_huber.mean() + loss_mse.mean()
+        elif loss_type == "huber":
+            loss_huber = F.huber_loss(model_pred.float(), target.float(), reduction="none", delta=1.0)
+            loss_huber = loss_huber * loss_scale.to(unet.device)
+            loss = loss_huber.mean()
+        else:
+            loss_mse = loss_mse * loss_scale.to(unet.device)
+            loss = loss_mse.mean()
 
         return model_pred, target, loss
     else:
@@ -324,6 +324,7 @@ def train_ad(
     checkpointing_epochs: int = 5,
     checkpointing_steps: int = -1,
     min_snr_gamma = None,
+    loss_type = None,
 
     mixed_precision_training: bool = True,
     enable_xformers_memory_efficient_attention: bool = True,
@@ -545,7 +546,7 @@ def train_ad(
                     steps_pbar.set_description(f"Validation")
 
                     for val_step, val_batch in enumerate(val_dataloader):
-                        model_pred, target = get_model_prediction_and_target(val_batch, unet, vae, noise_scheduler, tokenizer, text_encoder, val_generator, run_dir, return_loss=False, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps, sanity_check=val_step==0, min_snr_gamma=min_snr_gamma)
+                        model_pred, target = get_model_prediction_and_target(val_batch, unet, vae, noise_scheduler, tokenizer, text_encoder, val_generator, run_dir, return_loss=False, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps, sanity_check=val_step==0, min_snr_gamma=min_snr_gamma, loss_type=loss_type)
 
                         loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                         del target, model_pred
@@ -624,7 +625,7 @@ def train_ad(
 
             sample_start_time = time.time()
 
-            model_pred, target, loss = get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, train_generator, run_dir, cfg_random_null_text_ratio=cfg_random_null_text_ratio, return_loss=True, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps, sanity_check=global_step==0, min_snr_gamma=min_snr_gamma)
+            model_pred, target, loss = get_model_prediction_and_target(batch, unet, vae, noise_scheduler, tokenizer, text_encoder, train_generator, run_dir, cfg_random_null_text_ratio=cfg_random_null_text_ratio, return_loss=True, mixed_precision_training=mixed_precision_training, image_finetune=image_finetune, fps=train_data.target_fps, sanity_check=global_step==0, min_snr_gamma=min_snr_gamma, loss_type=loss_type)
 
             del target, model_pred
             torch.cuda.empty_cache()

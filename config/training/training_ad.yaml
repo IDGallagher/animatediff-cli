@@ -79,11 +79,13 @@ trainable_modules:
 unet_checkpoint_path: "/workspace/animatediff-cli/256-shutterstock-sd1-5.pth"
 # unet_checkpoint_path: ""
 
+min_snr_gamma:    5
+loss_type:        "huber"
 learning_rate:    1.e-5
 scale_lr:         False
 lr_scheduler:     "cosine"
-train_batch_size: 2
-gradient_accumulation_steps: 2
+train_batch_size: 1
+gradient_accumulation_steps: 1
 num_workers: 6
 
 # epoch_size:           10000000
@@ -97,7 +99,7 @@ validation_gen_steps:       200
 validation_gen_steps_tuple: []
 
 global_seed: 42
-mixed_precision_training: False
+mixed_precision_training: True
 enable_xformers_memory_efficient_attention: False
 gradient_checkpointing: True
 
