@@ -588,6 +588,22 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
 
         logger.info(f"Removed {len(pe_keys)} positional encoding keys from state_dict.")
 
+        if unet_additional_kwargs["emu_mask"]:
+            # load non-conv_in parameters first
+            new_state_dict = {}
+            for key in state_dict.keys():
+                if "conv_in" in key:
+                    continue
+                else:
+                    new_state_dict[key] = state_dict[key]
+            m, u = model.load_state_dict(new_state_dict, strict=False)
+            # load conv_in parameters : only 4 channels parameters need be loaded
+            model.conv_in.weight.data[:,:4,:,:] = state_dict['conv_in.weight']
+            torch.nn.init.zeros_(model.conv_in.weight.data[:,4:,:,:])
+            model.conv_in.bias.data = state_dict['conv_in.bias']
+        else:
+            m, u = model.load_state_dict(state_dict, strict=False)
+
         # load the weights into the model
         m, u = model.load_state_dict(state_dict, strict=False)
         logger.debug(f"### missing keys: {len(m)}; \n### unexpected keys: {len(u)};")

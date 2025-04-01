@@ -84,12 +84,12 @@ min_snr_gamma:    5
 loss_type:        "huber"
 learning_rate:    1.e-5
 lr_warmup_steps:  100
-scale_lr:         -0.5
+scale_lr:         True
 lr_scheduler:     "cosine"
 # lr_scheduler:     "linear"
 # lr_scheduler:     "cosine"
-train_batch_size: 2
-gradient_accumulation_steps: 2
+train_batch_size: 4
+gradient_accumulation_steps: 1
 num_workers: 4
 
 # epoch_size:           10000000
@@ -104,8 +104,8 @@ validation_gen_steps:       200
 validation_gen_steps_tuple: []
 
 global_seed: 42
-mixed_precision_training: False
-enable_xformers_memory_efficient_attention: False
+mixed_precision_training: True
+enable_xformers_memory_efficient_attention: True
 gradient_checkpointing: True
 
 is_debug: False
